@@ -503,7 +503,7 @@ for (this_day in day_levels) {
             axis.ticks       = element_blank()
         ) +
         labs(
-            y = paste0("NF54"," "," allele frequency"),
+            y = "NF54 allele frequency",
             color = "Concentration",
             linetype = "Time",
             title = paste0(
@@ -765,7 +765,7 @@ p_gene_box <- ggplot(
     ) +
     labs(
         x = "Competition day",
-        y = paste0("NF54"," ", "allele frequency"),
+        y = "NF54 allele frequency",
         fill = "Concentration",
         color = "Concentration",
         title = "Allele frequency at pfaat2, pfcrt, and pfaat1 across individual competition days"
@@ -855,7 +855,7 @@ for (g in levels(gene_af_df$Gene)) {
         ) +
         labs(
             x = "Competition day",
-            y = paste0("NF54", " allele frequency"),
+            y = "NF54 allele frequency",
             fill = "Concentration",
             color = "Concentration",
             title = paste0(g, " allele frequency across individual competition days")
@@ -1014,7 +1014,7 @@ p_pfcrt <- ggplot(
     ) +
     labs(
         x = "Competition day",
-        y = paste0("NF54", " allele frequency"),
+        y = "NF54 allele frequency",,
         fill = "Concentration",
         color = "Concentration",
         title = "pfcrt allele frequency across individual competition days"
