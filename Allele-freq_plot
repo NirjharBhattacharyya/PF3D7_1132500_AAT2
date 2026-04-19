@@ -855,7 +855,7 @@ for (g in levels(gene_af_df$Gene)) {
         ) +
         labs(
             x = "Competition day",
-            y = paste0("NF54_ALLELE", " allele frequency"),
+            y = paste0("NF54", " allele frequency"),
             fill = "Concentration",
             color = "Concentration",
             title = paste0(g, " allele frequency across individual competition days")
