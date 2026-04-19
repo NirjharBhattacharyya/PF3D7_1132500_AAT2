@@ -504,7 +504,7 @@ for (this_day in day_levels) {
             axis.ticks       = element_blank()
         ) +
         labs(
-            y = paste0(NF54_ALLELE, " allele frequency"),
+            y = paste0("NF54"," "," allele frequency"),
             color = "Concentration",
             linetype = "Time",
             title = paste0(
