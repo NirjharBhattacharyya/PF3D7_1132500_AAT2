@@ -160,7 +160,6 @@ AB_BC_0509\tM23\tM23 Control - 96 hr\t10\t1\t2\tdrug\t0\t96h
 AB_BC_0510\tM23\tM23 Control - 96 hr\t10\t2\t2\tdrug\t0\t96h
 AB_BC_0511\tM23\tM23 250 nM CQ - 96 hr\t10\t1\t2\tdrug\t250\t96h
 AB_BC_0512\tM23\tM23 250 nM CQ - 96 hr\t10\t2\t2\tdrug\t250\t96h
-AB_BC_0514\tM23\tM23 100 nM CQ - 96 hr\t10\t2\t2\tdrug\t100\t96h
 AB_BC_0515\tM23\tM23 50 nM CQ - 96 hr\t10\t1\t2\tdrug\t50\t96h
 AB_BC_0516\tM23\tM23 50 nM CQ - 96 hr\t10\t2\t2\tdrug\t50\t96h
 AB_BC_0529\tM26\tM26 Control - 96 hr\t10\t1\t2\tdrug\t0\t96h
@@ -214,7 +213,7 @@ keep_samples <- c(
     "AB_BC_0389","AB_BC_0390","AB_BC_0391","AB_BC_0392","AB_BC_0393","AB_BC_0394","AB_BC_0395","AB_BC_0396",
     "AB_BC_0285",
     "AB_BC_0489","AB_BC_0490","AB_BC_0491","AB_BC_0492","AB_BC_0494","AB_BC_0495","AB_BC_0496",
-    "AB_BC_0509","AB_BC_0510","AB_BC_0511","AB_BC_0512","AB_BC_0514","AB_BC_0515","AB_BC_0516",
+    "AB_BC_0509","AB_BC_0510","AB_BC_0511","AB_BC_0512","AB_BC_0515","AB_BC_0516",
     "AB_BC_0569","AB_BC_0570","AB_BC_0571","AB_BC_0572","AB_BC_0573","AB_BC_0574","AB_BC_0575","AB_BC_0576",
     "AB_BC_0589"
 )
