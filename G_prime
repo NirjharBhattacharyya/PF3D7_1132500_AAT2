@@ -1,20 +1,22 @@
-
-
-
-###################################################################
-# G' analysis
-###################################################################
-
 ################################################################################
-# MANUAL G' ANALYSIS FOR SELECTED SAMPLES
-#   - avoids runGprimeAnalysis() and non-exported QTLseqr internals
-#   - computes raw G manually
-#   - computes G' by local smoothing of G
-#   - uses Control vs Drug comparisons within MouseID / CompetitionDay / Time
-#   - saves combined results and plots
+# MANUAL G' ANALYSIS
+#   LEARNS FROM YOUR OTHER BSA SCRIPT:
+#   - build a merged genome-wide overlay using concatenated chromosome coordinates
+#   - REMOVE pfcrt region on Chr07 and pfaat1 region on Chr06 from the curves
+#   - compute residual Gamma-GLM thresholds only from the masked background
+#   - make:
+#       1) normal merged plot across all competition days
+#       2) residual merged plot across all competition days
+#       3) normal per-day plots
+#       4) residual per-day plots
+#
+# IMPORTANT:
+#   Residual here means masked residual display, exactly like your other BSA:
+#   the pfcrt / pfaat1 windows are set to NA in the plotted curve, and thresholds
+#   are fit on the remaining background only.
 ################################################################################
 
-# rm(list = ls())
+rm(list = ls())
 options(stringsAsFactors = FALSE)
 
 suppressPackageStartupMessages({
@@ -25,7 +27,16 @@ suppressPackageStartupMessages({
     library(ggplot2)
     library(tibble)
     library(locfit)
+    library(conflicted)
 })
+
+conflicted::conflicts_prefer(dplyr::filter)
+conflicted::conflicts_prefer(dplyr::select)
+conflicted::conflicts_prefer(dplyr::inner_join)
+conflicted::conflicts_prefer(dplyr::lag)
+conflicted::conflicts_prefer(dplyr::mutate)
+conflicted::conflicts_prefer(dplyr::summarise)
+conflicted::conflicts_prefer(dplyr::arrange)
 
 # ============================================================
 # INPUT
@@ -35,7 +46,30 @@ stopifnot(file.exists(TABLE_FILE))
 
 NF54_ALLELE <- "REF"
 WINDOW_SIZE <- 1e5
-MIN_DEPTH <- 20
+MIN_DEPTH   <- 20
+
+# ============================================================
+# MASKED REGIONS
+#   copied in spirit from your other BSA script
+# ============================================================
+MASK_PFCRT  <- TRUE
+MASK_PFAAT1 <- TRUE
+MASK_PFAAT2 <- FALSE
+
+pfcrt_chr   <- "Pf3D7_07_v3"
+pfcrt_mid   <- 404769.5
+pfcrt_start <- pfcrt_mid - 420300
+pfcrt_end   <- pfcrt_mid + 800000
+
+pfaat1_chr   <- "Pf3D7_06_v3"
+pfaat1_mid   <- 1214976.5
+pfaat1_start <- pfaat1_mid - 1100000
+pfaat1_end   <- pfaat1_mid + 7000
+
+pfaat2_chr   <- "Pf3D7_11_v3"
+pfaat2_mid   <- 1263918
+pfaat2_start <- pfaat2_mid - 300000
+pfaat2_end   <- pfaat2_mid + 300000
 
 # ============================================================
 # METADATA
@@ -181,25 +215,24 @@ AB_BC_0575\tpooled\tpooled 50 nM CQ - 96 hr\t10\t1\t2\tdrug\t50\t96h
 AB_BC_0576\tpooled\tpooled 50 nM CQ - 96 hr\t10\t2\t2\tdrug\t50\t96h
 "
 
-
-meta <- fread(text = meta_text, sep = "\t")
-setnames(meta, names(meta), gsub("[[:space:]]+", "", names(meta)))
+meta <- data.table::fread(text = meta_text, sep = "\t")
+data.table::setnames(meta, names(meta), gsub("[[:space:]]+", "", names(meta)))
 
 meta <- meta %>%
-    mutate(
+    dplyr::mutate(
         SampleID = as.character(SampleID),
         CompetitionDay = as.character(CompetitionDay),
         Time = factor(as.character(Time), levels = c("0h", "6h", "48h", "96h")),
-        Conc = case_when(
-            str_detect(as.character(Concentration), regex("^T0$", ignore_case = TRUE)) ~ "Control",
-            str_detect(as.character(Concentration), regex("^0$", ignore_case = TRUE)) ~ "Control",
-            str_detect(as.character(Concentration), regex("^50$", ignore_case = TRUE)) ~ "50 nM",
-            str_detect(as.character(Concentration), regex("^100$", ignore_case = TRUE)) ~ "100 nM",
-            str_detect(as.character(Concentration), regex("^250$", ignore_case = TRUE)) ~ "250 nM",
+        Conc = dplyr::case_when(
+            stringr::str_detect(as.character(Concentration), stringr::regex("^T0$", ignore_case = TRUE)) ~ "Control",
+            stringr::str_detect(as.character(Concentration), stringr::regex("^0$", ignore_case = TRUE)) ~ "Control",
+            stringr::str_detect(as.character(Concentration), stringr::regex("^50$", ignore_case = TRUE)) ~ "50 nM",
+            stringr::str_detect(as.character(Concentration), stringr::regex("^100$", ignore_case = TRUE)) ~ "100 nM",
+            stringr::str_detect(as.character(Concentration), stringr::regex("^250$", ignore_case = TRUE)) ~ "250 nM",
             TRUE ~ NA_character_
         )
     ) %>%
-    filter(!is.na(Conc), !is.na(Time), !is.na(CompetitionDay))
+    dplyr::filter(!is.na(Conc), !is.na(Time), !is.na(CompetitionDay))
 
 # ============================================================
 # KEEP ONLY USER-SELECTED SAMPLES
@@ -218,13 +251,14 @@ keep_samples <- c(
     "AB_BC_0569","AB_BC_0570","AB_BC_0571","AB_BC_0572","AB_BC_0573","AB_BC_0574","AB_BC_0575","AB_BC_0576",
     "AB_BC_0589"
 )
+
 meta <- meta %>%
-    filter(SampleID %in% keep_samples)
+    dplyr::filter(SampleID %in% keep_samples)
 
 # ============================================================
 # READ TABLE
 # ============================================================
-dt <- fread(TABLE_FILE)
+dt <- data.table::fread(TABLE_FILE)
 colnames(dt) <- gsub("/\\.", ".", colnames(dt))
 colnames(dt) <- gsub("\\s+", "", colnames(dt))
 
@@ -234,13 +268,14 @@ pos_col   <- names(dt)[tolower(names(dt)) %in% c("pos", "position", "start")][1]
 stopifnot(!is.na(chrom_col), !is.na(pos_col))
 
 ad_cols <- names(dt)[grepl("\\.AD$", names(dt))]
+
 sample_map <- data.frame(
     ad_col = ad_cols,
     SampleID = gsub("\\.AD$", "", ad_cols),
     stringsAsFactors = FALSE
 ) %>%
-    distinct(SampleID, .keep_all = TRUE) %>%
-    filter(SampleID %in% keep_samples)
+    dplyr::distinct(SampleID, .keep_all = TRUE) %>%
+    dplyr::filter(SampleID %in% keep_samples)
 
 # ============================================================
 # PARSE AD
@@ -250,7 +285,7 @@ extract_first_two_counts <- function(x) {
     nums_list <- stringr::str_extract_all(x, "[0-9]+")
     ref <- rep(NA_real_, length(nums_list))
     alt <- rep(NA_real_, length(nums_list))
-
+    
     for (i in seq_along(nums_list)) {
         vals <- nums_list[[i]]
         if (length(vals) >= 2) {
@@ -258,7 +293,7 @@ extract_first_two_counts <- function(x) {
             alt[i] <- as.numeric(vals[2])
         }
     }
-
+    
     data.frame(ref_ct = ref, alt_ct = alt)
 }
 
@@ -266,69 +301,68 @@ extract_first_two_counts <- function(x) {
 # RAW G STATISTIC
 # ============================================================
 calc_G_stat <- function(low_ref, low_alt, high_ref, high_alt) {
-    obs <- cbind(low_ref, low_alt, high_ref, high_alt)
-
     row_tot_1 <- low_ref + low_alt
     row_tot_2 <- high_ref + high_alt
     col_tot_1 <- low_ref + high_ref
     col_tot_2 <- low_alt + high_alt
     grand_tot <- row_tot_1 + row_tot_2
-
+    
     exp_low_ref  <- row_tot_1 * col_tot_1 / grand_tot
     exp_low_alt  <- row_tot_1 * col_tot_2 / grand_tot
     exp_high_ref <- row_tot_2 * col_tot_1 / grand_tot
     exp_high_alt <- row_tot_2 * col_tot_2 / grand_tot
-
+    
     term_fun <- function(o, e) {
         out <- rep(0, length(o))
         ok <- !is.na(o) & !is.na(e) & o > 0 & e > 0
         out[ok] <- o[ok] * log(o[ok] / e[ok])
         out
     }
-
+    
     g <- 2 * (
         term_fun(low_ref, exp_low_ref) +
-        term_fun(low_alt, exp_low_alt) +
-        term_fun(high_ref, exp_high_ref) +
-        term_fun(high_alt, exp_high_alt)
+            term_fun(low_alt, exp_low_alt) +
+            term_fun(high_ref, exp_high_ref) +
+            term_fun(high_alt, exp_high_alt)
     )
-
+    
     g[!is.finite(g)] <- NA_real_
     g
 }
 
 # ============================================================
-# LOCAL SMOOTHING FOR G' AND DELTASNP
+# LOCAL SMOOTHING FOR G'
 # ============================================================
 smooth_stat_locfit <- function(pos, stat, window_size = 1e5) {
     ord <- order(pos)
     x <- pos[ord]
     y <- stat[ord]
-
+    
     out <- rep(NA_real_, length(pos))
-
     good <- is.finite(x) & is.finite(y)
     if (sum(good) < 10) return(out)
-
+    
     xg <- x[good]
     yg <- y[good]
-
+    
     fit <- try(
         locfit::locfit(yg ~ locfit::lp(xg, h = window_size, deg = 0)),
         silent = TRUE
     )
-
     if (inherits(fit, "try-error")) return(out)
-
+    
     pred <- try(stats::predict(fit, newdata = x), silent = TRUE)
     if (inherits(pred, "try-error")) return(out)
-
+    
     out[ord] <- as.numeric(pred)
     out
 }
 
+# ============================================================
+# BUILD COUNT MATRIX
+# ============================================================
 base_df <- dt %>%
-    transmute(
+    dplyr::transmute(
         CHROM = as.character(.data[[chrom_col]]),
         POS   = as.numeric(.data[[pos_col]])
     )
@@ -337,17 +371,15 @@ chr_levels <- paste0("Pf3D7_", sprintf("%02d", 1:14), "_v3")
 keep_idx <- which(base_df$CHROM %in% chr_levels)
 
 gprime_df <- base_df[keep_idx, , drop = FALSE] %>%
-    mutate(CHROM = factor(CHROM, levels = chr_levels))
+    dplyr::mutate(CHROM = factor(CHROM, levels = chr_levels))
 
 for (i in seq_len(nrow(sample_map))) {
     sid <- sample_map$SampleID[i]
     ad_col <- sample_map$ad_col[i]
-
+    
     counts <- extract_first_two_counts(dt[[ad_col]])
     counts <- counts[keep_idx, , drop = FALSE]
-
-    depth <- counts$ref_ct + counts$alt_ct
-
+    
     if (NF54_ALLELE == "REF") {
         bulk_ref <- counts$ref_ct
         bulk_alt <- counts$alt_ct
@@ -355,373 +387,643 @@ for (i in seq_len(nrow(sample_map))) {
         bulk_ref <- counts$alt_ct
         bulk_alt <- counts$ref_ct
     }
-
+    
     gprime_df[[paste0(sid, "_REF")]] <- bulk_ref
     gprime_df[[paste0(sid, "_ALT")]] <- bulk_alt
-    gprime_df[[paste0(sid, "_DP")]]  <- depth
+    gprime_df[[paste0(sid, "_DP")]]  <- bulk_ref + bulk_alt
 }
 
 gprime_df <- as.data.frame(gprime_df)
 
 # ============================================================
-# BUILD COMPARISONS
+# BUILD ALL PAIRWISE TREATED-vs-CONTROL COMPARISONS
 # ============================================================
 comparison_tbl <- meta %>%
-    select(SampleID, MouseID, CompetitionDay, Time, Conc, Replicate) %>%
-    mutate(Time = as.character(Time))
+    dplyr::select(SampleID, CompetitionDay, Time, Conc, Replicate) %>%
+    dplyr::mutate(Time = as.character(Time))
 
-controls <- comparison_tbl %>% filter(Conc == "Control")
-treateds <- comparison_tbl %>% filter(Conc != "Control")
+controls <- comparison_tbl %>%
+    dplyr::filter(Conc == "Control") %>%
+    dplyr::rename(control_id = SampleID, control_rep = Replicate)
 
-comparisons <- treateds %>%
-    inner_join(
-        controls,
-        by = c("MouseID", "CompetitionDay", "Time"),
-        suffix = c("_treated", "_control"),
-        relationship = "many-to-many"
+treateds <- comparison_tbl %>%
+    dplyr::filter(Conc != "Control") %>%
+    dplyr::rename(treated_id = SampleID, treated_rep = Replicate, DrugConc = Conc)
+
+pairwise_day_comparisons <- dplyr::inner_join(
+    treateds,
+    controls,
+    by = c("CompetitionDay", "Time")
+) %>%
+    dplyr::mutate(
+        Comparison = paste0(
+            "Day", CompetitionDay, "_", Time, "_", DrugConc,
+            "__", treated_id, "_vs_", control_id
+        )
     ) %>%
-    transmute(
-        MouseID,
-        CompetitionDay,
+    dplyr::arrange(
+        suppressWarnings(as.numeric(CompetitionDay)),
         Time,
-        DrugConc = Conc_treated,
-        treated_id = SampleID_treated,
-        control_id = SampleID_control
+        DrugConc,
+        treated_id,
+        control_id
     )
 
-comparison_keys <- comparisons %>%
-    distinct(MouseID, CompetitionDay, Time, DrugConc)
+# ============================================================
+# HELPER: MASK REGIONS EXACTLY LIKE YOUR OTHER BSA LOGIC
+#   - Gprime_plot = plotted value
+#   - masked regions are set to NA
+# ============================================================
+mask_background_regions <- function(df) {
+    df %>%
+        dplyr::mutate(
+            CHROM_chr = as.character(CHROM),
+            in_mask = dplyr::case_when(
+                MASK_PFCRT  & CHROM_chr == pfcrt_chr  & POS >= pfcrt_start  & POS <= pfcrt_end  ~ TRUE,
+                MASK_PFAAT1 & CHROM_chr == pfaat1_chr & POS >= pfaat1_start & POS <= pfaat1_end ~ TRUE,
+                MASK_PFAAT2 & CHROM_chr == pfaat2_chr & POS >= pfaat2_start & POS <= pfaat2_end ~ TRUE,
+                TRUE ~ FALSE
+            ),
+            Gprime_plot = dplyr::case_when(
+                in_mask ~ NA_real_,
+                TRUE ~ as.numeric(Gprime)
+            )
+        )
+}
 
 # ============================================================
-# MANUAL G' HELPER
+# HELPER: FIT GAMMA GLM THRESHOLDS
+#   - for normal: uses all Gprime > 0
+#   - for residual: uses masked Gprime_plot > 0
 # ============================================================
-make_gprime_input <- function(mouse_id, day, time_i, drug_conc) {
+calc_glm_thresholds <- function(df_masked, value_col = "Gprime_plot") {
+    
+    df_bg <- df_masked %>%
+        dplyr::filter(!is.na(.data[[value_col]]), is.finite(.data[[value_col]]), .data[[value_col]] > 0) %>%
+        dplyr::transmute(y = .data[[value_col]])
+    
+    if (nrow(df_bg) < 50) {
+        return(tibble::tibble(
+            mu_hat = NA_real_,
+            phi_hat = NA_real_,
+            shape_hat = NA_real_,
+            scale_hat = NA_real_,
+            thr_p10 = NA_real_,
+            thr_p05 = NA_real_,
+            thr_p01 = NA_real_,
+            n_bg = nrow(df_bg)
+        ))
+    }
+    
+    glm_fit <- try(stats::glm(y ~ 1, family = Gamma(link = "log"), data = df_bg), silent = TRUE)
+    
+    if (inherits(glm_fit, "try-error")) {
+        return(tibble::tibble(
+            mu_hat = NA_real_,
+            phi_hat = NA_real_,
+            shape_hat = NA_real_,
+            scale_hat = NA_real_,
+            thr_p10 = NA_real_,
+            thr_p05 = NA_real_,
+            thr_p01 = NA_real_,
+            n_bg = nrow(df_bg)
+        ))
+    }
+    
+    mu_hat  <- as.numeric(exp(stats::coef(glm_fit)))
+    phi_hat <- summary(glm_fit)$dispersion
+    shape_hat <- 1 / phi_hat
+    scale_hat <- mu_hat * phi_hat
+    
+    tibble::tibble(
+        mu_hat = mu_hat,
+        phi_hat = phi_hat,
+        shape_hat = shape_hat,
+        scale_hat = scale_hat,
+        thr_p10 = stats::qgamma(0.90, shape = shape_hat, scale = scale_hat),
+        thr_p05 = stats::qgamma(0.95, shape = shape_hat, scale = scale_hat),
+        thr_p01 = stats::qgamma(0.99, shape = shape_hat, scale = scale_hat),
+        n_bg = nrow(df_bg)
+    )
+}
 
-    treated_ids <- comparisons %>%
-        filter(
-            MouseID == mouse_id,
-            CompetitionDay == day,
-            Time == time_i,
-            DrugConc == drug_conc
-        ) %>%
-        pull(treated_id) %>%
-        unique()
-
-    control_ids <- comparisons %>%
-        filter(
-            MouseID == mouse_id,
-            CompetitionDay == day,
-            Time == time_i,
-            DrugConc == drug_conc
-        ) %>%
-        pull(control_id) %>%
-        unique()
-
-    if (length(treated_ids) < 1 || length(control_ids) < 1) return(NULL)
-
+# ============================================================
+# HELPER: ONE PAIRWISE G' COMPARISON
+# ============================================================
+make_gprime_pair <- function(control_id, treated_id) {
+    
     out <- gprime_df[, c("CHROM", "POS"), drop = FALSE]
-
-    low_ref  <- rowSums(sapply(control_ids, function(s) gprime_df[[paste0(s, "_REF")]]), na.rm = FALSE)
-    low_alt  <- rowSums(sapply(control_ids, function(s) gprime_df[[paste0(s, "_ALT")]]), na.rm = FALSE)
-    high_ref <- rowSums(sapply(treated_ids, function(s) gprime_df[[paste0(s, "_REF")]]), na.rm = FALSE)
-    high_alt <- rowSums(sapply(treated_ids, function(s) gprime_df[[paste0(s, "_ALT")]]), na.rm = FALSE)
-
-    out$LowRef  <- low_ref
-    out$LowAlt  <- low_alt
-    out$HighRef <- high_ref
-    out$HighAlt <- high_alt
-    out$DP1 <- low_ref + low_alt
-    out$DP2 <- high_ref + high_alt
-    out$SNPindex1 <- out$LowAlt / out$DP1
-    out$SNPindex2 <- out$HighAlt / out$DP2
-    out$deltaSNP <- out$SNPindex2 - out$SNPindex1
-
+    
+    out$LowRef  <- gprime_df[[paste0(control_id, "_REF")]]
+    out$LowAlt  <- gprime_df[[paste0(control_id, "_ALT")]]
+    out$HighRef <- gprime_df[[paste0(treated_id, "_REF")]]
+    out$HighAlt <- gprime_df[[paste0(treated_id, "_ALT")]]
+    
+    out$DP1 <- out$LowRef + out$LowAlt
+    out$DP2 <- out$HighRef + out$HighAlt
+    
     out <- out %>%
-        filter(
+        dplyr::filter(
             !is.na(LowRef), !is.na(LowAlt), !is.na(HighRef), !is.na(HighAlt),
             !is.na(DP1), !is.na(DP2),
             DP1 >= MIN_DEPTH, DP2 >= MIN_DEPTH
         )
-
+    
     if (nrow(out) < 100) return(NULL)
-
+    
     out$G <- calc_G_stat(
         low_ref  = out$LowRef,
         low_alt  = out$LowAlt,
         high_ref = out$HighRef,
         high_alt = out$HighAlt
     )
-
-    out <- out %>%
-        group_by(CHROM) %>%
-        arrange(POS, .by_group = TRUE) %>%
-        mutate(
-            Gprime = smooth_stat_locfit(POS, G, window_size = WINDOW_SIZE),
-            deltaSNP_tricube = smooth_stat_locfit(POS, deltaSNP, window_size = WINDOW_SIZE)
-        ) %>%
-        ungroup()
-
-    out <- out %>%
-        filter(!is.na(Gprime), is.finite(Gprime))
-
-    attr(out, "n_low") <- length(control_ids)
-    attr(out, "n_high") <- length(treated_ids)
-    out
+    
+    out %>%
+        dplyr::group_by(CHROM) %>%
+        dplyr::arrange(POS, .by_group = TRUE) %>%
+        dplyr::mutate(Gprime = smooth_stat_locfit(POS, G, window_size = WINDOW_SIZE)) %>%
+        dplyr::ungroup() %>%
+        dplyr::filter(!is.na(Gprime), is.finite(Gprime))
 }
 
 # ============================================================
-# RUN MANUAL G' ANALYSIS
+# RUN ALL PAIRWISE COMPARISONS
 # ============================================================
-results_list <- list()
+results_list <- vector("list", nrow(pairwise_day_comparisons))
+threshold_list_normal <- vector("list", nrow(pairwise_day_comparisons))
+threshold_list_resid  <- vector("list", nrow(pairwise_day_comparisons))
 
-for (i in seq_len(nrow(comparison_keys))) {
-
-    mouse_i <- comparison_keys$MouseID[i]
-    day_i   <- comparison_keys$CompetitionDay[i]
-    time_i  <- comparison_keys$Time[i]
-    conc_i  <- comparison_keys$DrugConc[i]
-
-    res <- make_gprime_input(mouse_i, day_i, time_i, conc_i)
-
+for (i in seq_len(nrow(pairwise_day_comparisons))) {
+    
+    control_i <- pairwise_day_comparisons$control_id[i]
+    treated_i <- pairwise_day_comparisons$treated_id[i]
+    
+    res <- make_gprime_pair(control_i, treated_i)
+    
     if (is.null(res)) {
-        message("Skipping comparison (insufficient usable SNPs): ", paste(mouse_i, day_i, time_i, conc_i, sep = "_"))
+        message("Skipping comparison: ", pairwise_day_comparisons$Comparison[i])
         next
     }
-
-    n_low  <- attr(res, "n_low")
-    n_high <- attr(res, "n_high")
-
-    res$MouseID <- mouse_i
-    res$CompetitionDay <- day_i
-    res$Time <- time_i
-    res$DrugConc <- conc_i
-    res$Comparison <- paste(mouse_i, paste0("Day", day_i), time_i, conc_i, sep = "_")
-    res$n_control <- n_low
-    res$n_treated <- n_high
-
-    results_list[[paste(mouse_i, day_i, time_i, conc_i, sep = "_")]] <- res
+    
+    res$CompetitionDay <- pairwise_day_comparisons$CompetitionDay[i]
+    res$Time           <- pairwise_day_comparisons$Time[i]
+    res$DrugConc       <- pairwise_day_comparisons$DrugConc[i]
+    res$control_id     <- control_i
+    res$treated_id     <- treated_i
+    res$Comparison     <- pairwise_day_comparisons$Comparison[i]
+    
+    res <- mask_background_regions(res)
+    results_list[[i]] <- res
+    
+    thr_norm <- calc_glm_thresholds(
+        df_masked = res %>% dplyr::mutate(Gprime_all = Gprime),
+        value_col = "Gprime_all"
+    ) %>%
+        dplyr::mutate(
+            threshold_type = "normal",
+            CompetitionDay = pairwise_day_comparisons$CompetitionDay[i],
+            Time           = pairwise_day_comparisons$Time[i],
+            DrugConc       = pairwise_day_comparisons$DrugConc[i],
+            control_id     = control_i,
+            treated_id     = treated_i,
+            Comparison     = pairwise_day_comparisons$Comparison[i]
+        )
+    threshold_list_normal[[i]] <- thr_norm
+    
+    thr_resid <- calc_glm_thresholds(
+        df_masked = res,
+        value_col = "Gprime_plot"
+    ) %>%
+        dplyr::mutate(
+            threshold_type = "residual",
+            CompetitionDay = pairwise_day_comparisons$CompetitionDay[i],
+            Time           = pairwise_day_comparisons$Time[i],
+            DrugConc       = pairwise_day_comparisons$DrugConc[i],
+            control_id     = control_i,
+            treated_id     = treated_i,
+            Comparison     = pairwise_day_comparisons$Comparison[i]
+        )
+    threshold_list_resid[[i]] <- thr_resid
 }
 
-gprime_results <- bind_rows(results_list)
+gprime_pairwise_results <- dplyr::bind_rows(results_list)
+threshold_tbl_normal    <- dplyr::bind_rows(threshold_list_normal)
+threshold_tbl_resid     <- dplyr::bind_rows(threshold_list_resid)
 
-if (nrow(gprime_results) == 0) {
-    stop("No manual G' results produced. Check group sizes and filtering.")
+if (nrow(gprime_pairwise_results) == 0) {
+    stop("No pairwise G' results produced. Check matching treated/control groups.")
 }
 
-fwrite(gprime_results, "Gprime_manual_all_comparisons_results.csv")
+# ============================================================
+# CLEAN
+# ============================================================
+gprime_pairwise_results <- gprime_pairwise_results %>%
+    dplyr::mutate(
+        CompetitionDay = as.character(CompetitionDay),
+        Time = as.character(Time),
+        CHROM = as.character(CHROM),
+        DrugConc = as.character(DrugConc)
+    ) %>%
+    dplyr::filter(
+        !is.na(CompetitionDay), CompetitionDay != "",
+        !is.na(Time), Time != "",
+        !is.na(CHROM), CHROM != "",
+        !is.na(DrugConc), DrugConc != ""
+    )
+
+threshold_tbl_normal <- threshold_tbl_normal %>%
+    dplyr::mutate(
+        CompetitionDay = as.character(CompetitionDay),
+        Time = as.character(Time),
+        DrugConc = as.character(DrugConc)
+    ) %>%
+    dplyr::filter(
+        !is.na(CompetitionDay), CompetitionDay != "",
+        !is.na(Time), Time != "",
+        !is.na(DrugConc), DrugConc != ""
+    )
+
+threshold_tbl_resid <- threshold_tbl_resid %>%
+    dplyr::mutate(
+        CompetitionDay = as.character(CompetitionDay),
+        Time = as.character(Time),
+        DrugConc = as.character(DrugConc)
+    ) %>%
+    dplyr::filter(
+        !is.na(CompetitionDay), CompetitionDay != "",
+        !is.na(Time), Time != "",
+        !is.na(DrugConc), DrugConc != ""
+    )
+
+data.table::fwrite(gprime_pairwise_results, "Gprime_manual_pairwise_with_masks.csv")
+data.table::fwrite(threshold_tbl_normal,    "Gprime_manual_normal_thresholds.csv")
+data.table::fwrite(threshold_tbl_resid,     "Gprime_manual_residual_thresholds.csv")
 
 # ============================================================
-# EMPIRICAL THRESHOLDS
+# AGGREGATED THRESHOLDS BY DAY
 # ============================================================
-threshold_tbl <- gprime_results %>%
-    group_by(Comparison) %>%
-    summarise(
-        Gprime_95 = quantile(Gprime, 0.95, na.rm = TRUE),
-        Gprime_99 = quantile(Gprime, 0.99, na.rm = TRUE),
+threshold_day_normal <- threshold_tbl_normal %>%
+    dplyr::group_by(CompetitionDay, Time, DrugConc) %>%
+    dplyr::summarise(
+        thr_p10 = median(thr_p10, na.rm = TRUE),
+        thr_p05 = median(thr_p05, na.rm = TRUE),
+        thr_p01 = median(thr_p01, na.rm = TRUE),
         .groups = "drop"
     )
 
-fwrite(threshold_tbl, "Gprime_manual_thresholds_empirical.csv")
-
-# ============================================================
-# PLOT 1: ALL COMPARISONS OVERLAID
-# ============================================================
-chr_labeller <- as_labeller(setNames(paste0("Chr ", 1:14), chr_levels))
-
-p_all <- ggplot(gprime_results, aes(x = POS, y = Gprime, color = Comparison, group = Comparison)) +
-    geom_line(linewidth = 0.6, alpha = 0.9) +
-    facet_grid(~ CHROM, scales = "free_x", space = "free_x", labeller = chr_labeller) +
-    theme_bw(base_size = 10) +
-    theme(
-        strip.background = element_rect(fill = "grey95", color = "grey85"),
-        axis.title.x = element_blank(),
-        axis.text.x = element_blank(),
-        axis.ticks.x = element_blank(),
-        panel.grid.major = element_line(color = "grey92", linewidth = 0.2),
-        panel.grid.minor = element_line(color = "grey96", linewidth = 0.1)
-    ) +
-    labs(
-        y = "G'",
-        color = "Comparison",
-        title = "Genome-wide manual G' across all comparisons"
-    )
-
-print(p_all)
-
-ggsave(
-    "Gprime_manual_overlay_all_comparisons.png",
-    p_all,
-    width = 18,
-    height = 4.2,
-    dpi = 300
-)
-
-# ============================================================
-# PLOT 2: ONE PANEL PER COMPARISON
-# ============================================================
-p_facet <- ggplot(gprime_results, aes(x = POS, y = Gprime, group = Comparison)) +
-    geom_line(linewidth = 0.5, color = "black") +
-    facet_grid(Comparison ~ CHROM, scales = "free_x", space = "free_x", labeller = chr_labeller) +
-    theme_bw(base_size = 8) +
-    theme(
-        strip.background = element_rect(fill = "grey95", color = "grey85"),
-        axis.title.x = element_blank(),
-        axis.text.x = element_blank(),
-        axis.ticks.x = element_blank(),
-        panel.grid.major = element_line(color = "grey92", linewidth = 0.2),
-        panel.grid.minor = element_line(color = "grey96", linewidth = 0.1)
-    ) +
-    labs(
-        y = "G'",
-        title = "Genome-wide manual G' by comparison"
-    )
-
-print(p_facet)
-
-ggsave(
-    "Gprime_manual_facet_by_comparison.png",
-    p_facet,
-    width = 18,
-    height = max(6, 0.9 * length(unique(gprime_results$Comparison))),
-    dpi = 300
-)
-
-# ============================================================
-# PLOT 3: PEAK SUMMARY
-# ============================================================
-peak_tbl <- gprime_results %>%
-    group_by(Comparison, MouseID, CompetitionDay, Time, DrugConc, CHROM) %>%
-    summarise(
-        max_Gprime = max(Gprime, na.rm = TRUE),
-        peak_POS = POS[which.max(Gprime)],
+threshold_day_resid <- threshold_tbl_resid %>%
+    dplyr::group_by(CompetitionDay, Time, DrugConc) %>%
+    dplyr::summarise(
+        thr_p10 = median(thr_p10, na.rm = TRUE),
+        thr_p05 = median(thr_p05, na.rm = TRUE),
+        thr_p01 = median(thr_p01, na.rm = TRUE),
         .groups = "drop"
     )
-
-fwrite(peak_tbl, "Gprime_manual_peak_summary_by_chr.csv")
-
-p_peak <- ggplot(peak_tbl, aes(x = CHROM, y = max_Gprime, fill = DrugConc)) +
-    geom_col(position = "dodge") +
-    facet_wrap(~ Comparison, ncol = 1) +
-    theme_bw(base_size = 9) +
-    theme(
-        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)
-    ) +
-    labs(
-        x = "Chromosome",
-        y = "Max G'",
-        fill = "Drug concentration",
-        title = "Peak manual G' per chromosome"
-    )
-
-print(p_peak)
-
-ggsave(
-    "Gprime_manual_peak_summary.png",
-    p_peak,
-    width = 10,
-    height = max(6, 1.2 * length(unique(peak_tbl$Comparison))),
-    dpi = 300
-)
-
-cat("Saved:\n")
-cat("  Gprime_manual_all_comparisons_results.csv\n")
-cat("  Gprime_manual_thresholds_empirical.csv\n")
-cat("  Gprime_manual_peak_summary_by_chr.csv\n")
-cat("  Gprime_manual_overlay_all_comparisons.png\n")
-cat("  Gprime_manual_facet_by_comparison.png\n")
-cat("  Gprime_manual_peak_summary.png\n")
-
 
 # ============================================================
 # GENE MARKERS
 # ============================================================
 gene_lines <- data.frame(
-    Gene = c("PfAAT2", "pfcrt", "pfaat1"),
-    CHROM = factor(c("Pf3D7_11_v3", "Pf3D7_07_v3", "Pf3D7_06_v3"), levels = chr_levels),
-    POS   = c(1263918, 404769.5, 1214976.5)
+    Gene  = c("pfaat1", "pfcrt", "pfaat2"),
+    CHROM = factor(c("Pf3D7_06_v3", "Pf3D7_07_v3", "Pf3D7_11_v3"), levels = chr_levels),
+    POS   = c(1214976.5, 404769.5, 1263918)
 )
 
-# ============================================================
-# PLOT 1: ALL COMPARISONS OVERLAID
-# ============================================================
-chr_labeller <- as_labeller(setNames(paste0("Chr ", 1:14), chr_levels))
+chr_labeller <- ggplot2::as_labeller(setNames(paste0("Chr ", 1:14), chr_levels))
 
-p_all <- ggplot(gprime_results, aes(x = POS, y = Gprime, color = Comparison, group = Comparison)) +
-    facet_grid(~ CHROM, scales = "free_x", space = "free_x", labeller = chr_labeller) +
-    geom_line(linewidth = 0.6, alpha = 0.9) +
-    geom_vline(
-        data = gene_lines,
-        aes(xintercept = POS),
-        inherit.aes = FALSE,
-        linetype = "dashed",
-        linewidth = 0.7,
-        color = "blue"
-    ) +
-    theme_bw(base_size = 10) +
-    theme(
-        strip.background = element_rect(fill = "grey95", color = "grey85"),
-        axis.title.x = element_blank(),
-        axis.text.x = element_blank(),
-        axis.ticks.x = element_blank(),
-        panel.grid.major = element_line(color = "grey92", linewidth = 0.2),
-        panel.grid.minor = element_line(color = "grey96", linewidth = 0.1)
-    ) +
-    labs(
-        y = "G'",
-        color = "Comparison",
-        title = "Genome-wide manual G' across all comparisons"
+# ============================================================
+# HELPER: CONCATENATED GENOME COORDINATES
+#   this is the key thing your other BSA code does
+# ============================================================
+make_genome_positions <- function(df) {
+    chr_lengths <- df %>%
+        dplyr::group_by(CHROM) %>%
+        dplyr::summarise(chr_len = max(POS, na.rm = TRUE), .groups = "drop") %>%
+        dplyr::mutate(CHROM = factor(as.character(CHROM), levels = chr_levels)) %>%
+        dplyr::arrange(CHROM) %>%
+        dplyr::mutate(
+            chr_start = cumsum(dplyr::lag(chr_len, default = 0)),
+            chr_end   = chr_start + chr_len
+        )
+    
+    df2 <- df %>%
+        dplyr::left_join(chr_lengths, by = "CHROM") %>%
+        dplyr::mutate(genome_pos = POS + chr_start)
+    
+    axis_df <- chr_lengths %>%
+        dplyr::mutate(
+            center = (chr_start + chr_end) / 2,
+            label  = gsub("Pf3D7_", "Chr ", gsub("_v3", "", as.character(CHROM)))
+        )
+    
+    bg_df <- chr_lengths %>%
+        dplyr::mutate(fill = rep(c("gray90", "white"), length.out = n()))
+    
+    list(df = df2, chr_lengths = chr_lengths, axis_df = axis_df, bg_df = bg_df)
+}
+
+# ============================================================
+# HELPER: MERGED OVERLAY PLOT
+# ============================================================
+plot_merged_overlay <- function(df, thr_df, value_col, title_text, outfile, y_lab = "G' value") {
+    
+    tmp <- make_genome_positions(
+        df %>%
+            dplyr::mutate(CHROM = factor(as.character(CHROM), levels = chr_levels))
     )
-
-print(p_all)
-
-ggsave(
-    "Gprime_manual_overlay_all_comparisons.png",
-    p_all,
-    width = 18,
-    height = 4.2,
-    dpi = 300
-)
-
-# ============================================================
-# PLOT 2: ONE PANEL PER COMPARISON
-# ============================================================
-p_facet <- ggplot(gprime_results, aes(x = POS, y = Gprime, group = Comparison)) +
-    facet_grid(Comparison ~ CHROM, scales = "free_x", space = "free_x", labeller = chr_labeller) +
-    geom_line(linewidth = 0.5, color = "black") +
-    geom_vline(
-        data = gene_lines,
-        aes(xintercept = POS),
-        inherit.aes = FALSE,
-        linetype = "dashed",
-        linewidth = 0.7,
-        color = "blue"
-    ) +
-    theme_bw(base_size = 8) +
-    theme(
-        strip.background = element_rect(fill = "grey95", color = "grey85"),
-        axis.title.x = element_blank(),
-        axis.text.x = element_blank(),
-        axis.ticks.x = element_blank(),
-        panel.grid.major = element_line(color = "grey92", linewidth = 0.2),
-        panel.grid.minor = element_line(color = "grey96", linewidth = 0.1)
-    ) +
-    labs(
-        y = "G'",
-        title = "Genome-wide manual G' by comparison"
+    
+    overlay_df <- tmp$df
+    axis_df    <- tmp$axis_df
+    bg_df      <- tmp$bg_df
+    
+    x_right <- max(overlay_df$genome_pos, na.rm = TRUE)
+    
+    p <- ggplot() +
+        geom_rect(
+            data = bg_df,
+            aes(xmin = chr_start, xmax = chr_end, ymin = -Inf, ymax = Inf, fill = fill),
+            alpha = 0.5
+        ) +
+        scale_fill_identity() +
+        geom_line(
+            data = overlay_df,
+            aes(x = genome_pos, y = .data[[value_col]], group = Comparison, color = DrugConc),
+            linewidth = 0.55,
+            alpha = 0.9,
+            na.rm = TRUE
+        ) +
+        geom_hline(
+            data = thr_df,
+            aes(yintercept = thr_p05, color = DrugConc),
+            linetype = "dashed",
+            linewidth = 0.9,
+            inherit.aes = FALSE
+        ) +
+        geom_hline(
+            data = thr_df,
+            aes(yintercept = thr_p01, color = DrugConc),
+            linetype = "dashed",
+            linewidth = 0.9,
+            inherit.aes = FALSE
+        ) +
+        scale_x_continuous(
+            name = "Genomic Position",
+            breaks = axis_df$center,
+            labels = axis_df$label,
+            expand = c(0, 0)
+        ) +
+        scale_color_manual(
+            values = c(
+                "50 nM"  = "#F05A7E",
+                "100 nM" = "#00BA38",
+                "250 nM" = "#619CFF"
+            ),
+            drop = TRUE
+        ) +
+        ylab(y_lab) +
+        ggtitle(title_text) +
+        theme_bw(base_size = 16) +
+        theme(
+            axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
+            panel.grid.major.x = element_blank(),
+            plot.title = element_text(hjust = 0.5),
+            legend.title = element_blank()
+        ) +
+        annotate("text", x = x_right, y = max(thr_df$thr_p01, na.rm = TRUE), label = "p = 0.01",
+                 hjust = 1.02, vjust = -0.6, size = 6) +
+        annotate("text", x = x_right, y = max(thr_df$thr_p05, na.rm = TRUE), label = "p = 0.05",
+                 hjust = 1.02, vjust = -0.6, size = 6)
+    
+    print(p)
+    
+    ggsave(
+        filename = outfile,
+        plot = p,
+        width = 20,
+        height = 8,
+        dpi = 300
     )
+}
 
-print(p_facet)
+# ============================================================
+# HELPER: PER-DAY FACET PLOT
+# ============================================================
+make_day_plot <- function(plot_df, thr_df, title_text, outfile, value_col = "Gprime", show_gene_lines = TRUE, y_lab = "G'") {
+    
+    plot_df <- plot_df %>%
+        dplyr::filter(!is.na(.data[[value_col]]), is.finite(.data[[value_col]])) %>%
+        dplyr::mutate(
+            Time = factor(as.character(Time), levels = c("0h", "6h", "48h", "96h")),
+            CHROM = factor(as.character(CHROM), levels = chr_levels),
+            DrugConc = factor(as.character(DrugConc), levels = c("50 nM", "100 nM", "250 nM"))
+        ) %>%
+        droplevels()
+    
+    if (nrow(plot_df) == 0) return(NULL)
+    
+    chrom_present <- levels(droplevels(plot_df$CHROM))
+    plot_df$CHROM <- factor(as.character(plot_df$CHROM), levels = chrom_present)
+    
+    if (show_gene_lines) {
+        gene_lines_use <- gene_lines %>%
+            dplyr::filter(as.character(CHROM) %in% chrom_present) %>%
+            dplyr::mutate(CHROM = factor(as.character(CHROM), levels = chrom_present))
+    }
+    
+    p <- ggplot(
+        plot_df,
+        aes(x = POS, y = .data[[value_col]], color = DrugConc, group = Comparison)
+    ) +
+        facet_grid(
+            Time ~ CHROM,
+            scales = "free_x",
+            space = "free_x",
+            labeller = labeller(CHROM = chr_labeller, Time = label_value),
+            drop = TRUE,
+            switch = "y"
+        ) +
+        geom_line(linewidth = 0.45, alpha = 0.55, na.rm = TRUE)
+    
+    if (show_gene_lines) {
+        p <- p + geom_vline(
+            data = gene_lines_use,
+            aes(xintercept = POS),
+            inherit.aes = FALSE,
+            linetype = "dashed",
+            linewidth = 0.65,
+            color = "blue"
+        )
+    }
+    
+    p <- p +
+        geom_hline(
+            data = thr_df,
+            aes(yintercept = thr_p05, color = DrugConc),
+            inherit.aes = FALSE,
+            linetype = "dashed",
+            linewidth = 0.40,
+            alpha = 0.7
+        ) +
+        geom_hline(
+            data = thr_df,
+            aes(yintercept = thr_p01, color = DrugConc),
+            inherit.aes = FALSE,
+            linetype = "dotted",
+            linewidth = 0.40,
+            alpha = 0.7
+        ) +
+        scale_color_manual(
+            values = c(
+                "50 nM"  = "#F05A7E",
+                "100 nM" = "#00BA38",
+                "250 nM" = "#619CFF"
+            ),
+            drop = TRUE
+        ) +
+        scale_x_continuous(expand = c(0, 0)) +
+        theme_bw(base_size = 9) +
+        theme(
+            strip.background = element_rect(fill = "grey95", color = "grey85"),
+            strip.text.x = element_text(size = 8, face = "bold"),
+            strip.text.y = element_blank(),
+            axis.title.x = element_blank(),
+            axis.text.x = element_blank(),
+            axis.ticks.x = element_blank(),
+            panel.grid.major = element_line(color = "grey92", linewidth = 0.2),
+            panel.grid.minor = element_line(color = "grey96", linewidth = 0.1),
+            legend.position = "right"
+        ) +
+        labs(
+            y = y_lab,
+            color = "Drug concentration\nsolid = curve\ndashed = p = 0.05\ndotted = p = 0.01",
+            title = title_text
+        )
+    
+    print(p)
+    
+    ggsave(
+        filename = outfile,
+        plot = p,
+        width = 18,
+        height = max(3.8, 2.2 * length(unique(as.character(plot_df$Time)))),
+        dpi = 300
+    )
+}
 
-ggsave(
-    "Gprime_manual_facet_by_comparison.png",
-    p_facet,
-    width = 18,
-    height = max(6, 0.9 * length(unique(gprime_results$Comparison))),
-    dpi = 300
+# ============================================================
+# 1) NORMAL PER-DAY PLOTS
+# ============================================================
+day_levels_plot <- sort(unique(gprime_pairwise_results$CompetitionDay))
+day_levels_plot <- day_levels_plot[order(suppressWarnings(as.numeric(day_levels_plot)))]
+
+for (this_day in day_levels_plot) {
+    
+    plot_df_day <- gprime_pairwise_results %>%
+        dplyr::filter(CompetitionDay == this_day)
+    
+    thr_day <- threshold_day_normal %>%
+        dplyr::filter(CompetitionDay == this_day) %>%
+        dplyr::mutate(
+            Time = factor(as.character(Time), levels = c("0h", "6h", "48h", "96h")),
+            DrugConc = factor(as.character(DrugConc), levels = c("50 nM", "100 nM", "250 nM"))
+        )
+    
+    make_day_plot(
+        plot_df = plot_df_day,
+        thr_df = thr_day,
+        title_text = paste0("Manual G' - all treated vs each control within Competition Day ", this_day),
+        outfile = paste0("Gprime_normal_competition_day_", this_day, ".png"),
+        value_col = "Gprime",
+        show_gene_lines = TRUE,
+        y_lab = "G'"
+    )
+}
+
+# ============================================================
+# 2) NORMAL MERGED PLOT ACROSS ALL DAYS
+# ============================================================
+merged_normal_df <- gprime_pairwise_results %>%
+    dplyr::filter(!is.na(Gprime), is.finite(Gprime)) %>%
+    dplyr::mutate(
+        CHROM = factor(as.character(CHROM), levels = chr_levels),
+        DrugConc = factor(as.character(DrugConc), levels = c("50 nM", "100 nM", "250 nM"))
+    ) %>%
+    droplevels()
+
+merged_normal_thr <- threshold_tbl_normal %>%
+    dplyr::group_by(DrugConc) %>%
+    dplyr::summarise(
+        thr_p10 = median(thr_p10, na.rm = TRUE),
+        thr_p05 = median(thr_p05, na.rm = TRUE),
+        thr_p01 = median(thr_p01, na.rm = TRUE),
+        .groups = "drop"
+    ) %>%
+    dplyr::mutate(DrugConc = factor(as.character(DrugConc), levels = c("50 nM", "100 nM", "250 nM")))
+
+plot_merged_overlay(
+    df = merged_normal_df,
+    thr_df = merged_normal_thr,
+    value_col = "Gprime",
+    title_text = "Genome-wide G' overlay across all competition days",
+    outfile = "Gprime_normal_merged_overlay_all_competition_days.png",
+    y_lab = "G' value"
 )
 
+# ============================================================
+# 3) RESIDUAL PER-DAY PLOTS
+#   pfcrt / pfaat1 windows are REMOVED from curves
+# ============================================================
+for (this_day in day_levels_plot) {
+    
+    plot_df_day_resid <- gprime_pairwise_results %>%
+        dplyr::filter(CompetitionDay == this_day)
+    
+    thr_day_resid <- threshold_day_resid %>%
+        dplyr::filter(CompetitionDay == this_day) %>%
+        dplyr::mutate(
+            Time = factor(as.character(Time), levels = c("0h", "6h", "48h", "96h")),
+            DrugConc = factor(as.character(DrugConc), levels = c("50 nM", "100 nM", "250 nM"))
+        )
+    
+    make_day_plot(
+        plot_df = plot_df_day_resid,
+        thr_df = thr_day_resid,
+        title_text = paste0("Residual G' after masking pfcrt and pfaat1 - Competition Day ", this_day),
+        outfile = paste0("Gprime_residual_competition_day_", this_day, ".png"),
+        value_col = "Gprime_plot",
+        show_gene_lines = FALSE,
+        y_lab = "Residual G'"
+    )
+}
 
+# ============================================================
+# 4) RESIDUAL MERGED PLOT ACROSS ALL DAYS
+#   this now behaves like your other BSA overlay:
+#   masked regions are absent from Chr07 and Chr06
+# ============================================================
+merged_resid_df <- gprime_pairwise_results %>%
+    dplyr::filter(!is.na(Gprime_plot), is.finite(Gprime_plot)) %>%
+    dplyr::mutate(
+        CHROM = factor(as.character(CHROM), levels = chr_levels),
+        DrugConc = factor(as.character(DrugConc), levels = c("50 nM", "100 nM", "250 nM"))
+    ) %>%
+    droplevels()
 
+merged_resid_thr <- threshold_tbl_resid %>%
+    dplyr::group_by(DrugConc) %>%
+    dplyr::summarise(
+        thr_p10 = median(thr_p10, na.rm = TRUE),
+        thr_p05 = median(thr_p05, na.rm = TRUE),
+        thr_p01 = median(thr_p01, na.rm = TRUE),
+        .groups = "drop"
+    ) %>%
+    dplyr::mutate(DrugConc = factor(as.character(DrugConc), levels = c("50 nM", "100 nM", "250 nM")))
 
-
-
+plot_merged_overlay(
+    df = merged_resid_df,
+    thr_df = merged_resid_thr,
+    value_col = "Gprime_plot",
+    title_text = "Genome-wide residual G' overlay after masking pfcrt and pfaat1",
+    outfile = "Gprime_residual_merged_overlay_all_competition_days.png",
+    y_lab = "G' value"
+)
