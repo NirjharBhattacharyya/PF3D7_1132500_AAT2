@@ -476,8 +476,8 @@ for (this_day in day_levels) {
         scale_linetype_manual(
             values = c(
                 "0h"  = "solid",
-                "6h"  = "dashed",
-                "48h" = "dotted",
+                "6h"  = "dotted",
+                "48h" = "dashed",
                 "96h" = "longdash"
             ),
             drop = FALSE
@@ -600,7 +600,7 @@ gene_af_df <- gene_af_df %>%
             levels = as.character(sort(unique(suppressWarnings(as.numeric(as.character(CompetitionDay))))))
         ),
         Conc = factor(Conc, levels = c("Control","50 nM","100 nM","250 nM")),
-        Gene = factor(Gene, levels = c("PfAAT2", "pfcrt", "pfaat1"))
+        Gene = factor(Gene, levels = c("pfaat2", "pfcrt", "pfaat1"))
     )
 
 fwrite(gene_af_df, "AF_gene_window_summary_boxplot.csv")
@@ -768,7 +768,7 @@ p_gene_box <- ggplot(
         y = paste0("NF54_ALLELE"," ", "allele frequency"),
         fill = "Concentration",
         color = "Concentration",
-        title = "Allele frequency at PfAAT2, pfcrt, and pfaat1 across individual competition days"
+        title = "Allele frequency at pfaat2, pfcrt, and pfaat1 across individual competition days"
     )
 
 if (nrow(pairwise_stats_sig) > 0) {
