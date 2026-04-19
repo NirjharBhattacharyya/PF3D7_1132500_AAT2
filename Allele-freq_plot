@@ -1233,12 +1233,10 @@ MIN_DEPTH <- 20
 meta_text <- "
 SampleID\tMouseID\tSelectionLevel\tCompetitionDay\tReplicate\tBatch\tBSA\tConcentration\tTime
 AB_BC_0038\tM13\tT0\t0\t1\t1\tdrug\tT0\t0h
-AB_BC_0039\tM16\tT0\t0\t1\t1\tdrug\tT0\t0h
 AB_BC_0040\tM23\tT0\t0\t1\t1\tdrug\tT0\t0h
 AB_BC_0041\tM26\tT0\t0\t1\t1\tdrug\tT0\t0h
 AB_BC_0042\tM43\tT0\t0\t1\t1\tdrug\tT0\t0h
 AB_BC_0043\tM46\tT0\t0\t1\t1\tdrug\tT0\t0h
-AB_BC_0044\tPooled\tT0\t0\t1\t1\tdrug\tT0\t0h
 AB_BC_0045\tM13\tControl - 48 hr\t4\t1\t1\tdrug\t0\t48h
 AB_BC_0047\tM13\t250 nM CQ - 48 hr\t4\t1\t1\tdrug\t250\t48h
 AB_BC_0049\tM13\t100 nM CQ - 48 hr\t4\t1\t1\tdrug\t100\t48h
@@ -1266,8 +1264,6 @@ AB_BC_0065\tM16\tControl - 48 hr\t4\t1\t2\tdrug\t0\t48h
 AB_BC_0066\tM16\tControl - 48 hr\t4\t2\t2\tdrug\t0\t48h
 AB_BC_0067\tM16\t250 nM CQ - 48 hr\t4\t1\t2\tdrug\t250\t48h
 AB_BC_0068\tM16\t250 nM CQ - 48 hr\t4\t2\t2\tdrug\t250\t48h
-AB_BC_0069\tM16\t100 nM CQ - 48 hr\t4\t1\t2\tdrug\t100\t48h
-AB_BC_0070\tM16\t100 nM CQ - 48 hr\t4\t2\t2\tdrug\t100\t48h
 AB_BC_0071\tM16\t50 nM CQ - 48 hr\t4\t1\t2\tdrug\t50\t48h
 AB_BC_0072\tM16\t50 nM CQ - 48 hr\t4\t2\t2\tdrug\t50\t48h
 AB_BC_0085\tM23\tControl - 48 hr\t4\t1\t2\tdrug\t0\t48h
@@ -1295,7 +1291,6 @@ AB_BC_0370\tM16\tM16 Control - 48 hr\t7\t2\t2\tdrug\t0\t48h
 AB_BC_0371\tM16\tM16 250 nM CQ - 48 hr\t7\t1\t2\tdrug\t250\t48h
 AB_BC_0372\tM16\tM16 250 nM CQ - 48 hr\t7\t2\t2\tdrug\t250\t48h
 AB_BC_0373\tM16\tM16 100 nM CQ - 48 hr\t7\t1\t2\tdrug\t100\t48h
-AB_BC_0374\tM16\tM16 100 nM CQ - 48 hr\t7\t2\t2\tdrug\t100\t48h
 AB_BC_0375\tM16\tM16 50 nM CQ - 48 hr\t7\t1\t2\tdrug\t50\t48h
 AB_BC_0376\tM16\tM16 50 nM CQ - 48 hr\t7\t2\t2\tdrug\t50\t48h
 AB_BC_0389\tM23\tM23 Control - 48 hr\t7\t1\t2\tdrug\t0\t48h
@@ -1350,16 +1345,12 @@ AB_BC_0489\tM16\tM16 Control - 96 hr\t10\t1\t2\tdrug\t0\t96h
 AB_BC_0490\tM16\tM16 Control - 96 hr\t10\t2\t2\tdrug\t0\t96h
 AB_BC_0491\tM16\tM16 250 nM CQ - 96 hr\t10\t1\t2\tdrug\t250\t96h
 AB_BC_0492\tM16\tM16 250 nM CQ - 96 hr\t10\t2\t2\tdrug\t250\t96h
-AB_BC_0493\tM16\tM16 100 nM CQ - 96 hr\t10\t1\t2\tdrug\t100\t96h
-AB_BC_0494\tM16\tM16 100 nM CQ - 96 hr\t10\t2\t2\tdrug\t100\t96h
 AB_BC_0495\tM16\tM16 50 nM CQ - 96 hr\t10\t1\t2\tdrug\t50\t96h
 AB_BC_0496\tM16\tM16 50 nM CQ - 96 hr\t10\t2\t2\tdrug\t50\t96h
 AB_BC_0509\tM23\tM23 Control - 96 hr\t10\t1\t2\tdrug\t0\t96h
 AB_BC_0510\tM23\tM23 Control - 96 hr\t10\t2\t2\tdrug\t0\t96h
 AB_BC_0511\tM23\tM23 250 nM CQ - 96 hr\t10\t1\t2\tdrug\t250\t96h
 AB_BC_0512\tM23\tM23 250 nM CQ - 96 hr\t10\t2\t2\tdrug\t250\t96h
-AB_BC_0513\tM23\tM23 100 nM CQ - 96 hr\t10\t1\t2\tdrug\t100\t96h
-AB_BC_0514\tM23\tM23 100 nM CQ - 96 hr\t10\t2\t2\tdrug\t100\t96h
 AB_BC_0515\tM23\tM23 50 nM CQ - 96 hr\t10\t1\t2\tdrug\t50\t96h
 AB_BC_0516\tM23\tM23 50 nM CQ - 96 hr\t10\t2\t2\tdrug\t50\t96h
 AB_BC_0529\tM26\tM26 Control - 96 hr\t10\t1\t2\tdrug\t0\t96h
@@ -1379,6 +1370,7 @@ AB_BC_0574\tpooled\tpooled 100 nM CQ - 96 hr\t10\t2\t2\tdrug\t100\t96h
 AB_BC_0575\tpooled\tpooled 50 nM CQ - 96 hr\t10\t1\t2\tdrug\t50\t96h
 AB_BC_0576\tpooled\tpooled 50 nM CQ - 96 hr\t10\t2\t2\tdrug\t50\t96h
 "
+
 
 meta <- fread(text = meta_text, sep = "\t")
 setnames(meta, names(meta), gsub("[[:space:]]+", "", names(meta)))
@@ -1403,21 +1395,19 @@ meta <- meta %>%
 # KEEP ONLY USER-SELECTED SAMPLES
 # ============================================================
 keep_samples <- c(
-    "AB_BC_0039",
-    "AB_BC_0065","AB_BC_0066","AB_BC_0067","AB_BC_0068","AB_BC_0069","AB_BC_0070","AB_BC_0071","AB_BC_0072",
+    "AB_BC_0065","AB_BC_0066","AB_BC_0067","AB_BC_0068","AB_BC_0071","AB_BC_0072",
     "AB_BC_0085","AB_BC_0086","AB_BC_0087","AB_BC_0088","AB_BC_0089","AB_BC_0090","AB_BC_0091","AB_BC_0092",
     "AB_BC_0105",
     "AB_BC_0185","AB_BC_0186","AB_BC_0187","AB_BC_0188","AB_BC_0191","AB_BC_0192",
     "AB_BC_0205","AB_BC_0206","AB_BC_0207","AB_BC_0208","AB_BC_0209","AB_BC_0210","AB_BC_0211","AB_BC_0212",
-    "AB_BC_0369","AB_BC_0370","AB_BC_0371","AB_BC_0372","AB_BC_0374","AB_BC_0375","AB_BC_0376",
+    "AB_BC_0369","AB_BC_0370","AB_BC_0371","AB_BC_0372","AB_BC_0375","AB_BC_0376",
     "AB_BC_0389","AB_BC_0390","AB_BC_0391","AB_BC_0392","AB_BC_0393","AB_BC_0394","AB_BC_0395","AB_BC_0396",
     "AB_BC_0285",
-    "AB_BC_0489","AB_BC_0490","AB_BC_0491","AB_BC_0492","AB_BC_0493","AB_BC_0494","AB_BC_0495","AB_BC_0496",
-    "AB_BC_0509","AB_BC_0510","AB_BC_0511","AB_BC_0512","AB_BC_0513","AB_BC_0514","AB_BC_0515","AB_BC_0516",
+    "AB_BC_0489","AB_BC_0490","AB_BC_0491","AB_BC_0492","AB_BC_0495","AB_BC_0496",
+    "AB_BC_0509","AB_BC_0510","AB_BC_0511","AB_BC_0512","AB_BC_0515","AB_BC_0516",
     "AB_BC_0569","AB_BC_0570","AB_BC_0571","AB_BC_0572","AB_BC_0573","AB_BC_0574","AB_BC_0575","AB_BC_0576",
     "AB_BC_0589"
 )
-
 meta <- meta %>%
     filter(SampleID %in% keep_samples)
 
