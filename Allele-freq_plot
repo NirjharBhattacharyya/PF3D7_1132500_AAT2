@@ -1048,6 +1048,40 @@ suppressPackageStartupMessages({
     library(tidyr)
 })
 
+
+# ============================================================
+# COMPUTE CORRELATION: DAY × CONC
+# ============================================================
+
+cor_day_conc <- gene_af_df %>%
+    select(SampleID, CompetitionDay, Conc, Gene, AF_gene) %>%
+    pivot_wider(names_from = Gene, values_from = AF_gene) %>%
+    group_by(CompetitionDay, Conc) %>%
+    summarise(
+        cor_AAT2_pfcrt  = cor(pfaat2, pfcrt, use = "complete.obs"),
+        cor_AAT2_pfaat1 = cor(pfaat2, pfaat1, use = "complete.obs"),
+        cor_pfcrt_pfaat1 = cor(pfcrt, pfaat1, use = "complete.obs"),
+        .groups = "drop"
+    )
+
+
+# ============================================================
+# GLOBAL CORRELATION
+# ============================================================
+
+cor_global <- gene_af_df %>%
+    select(SampleID, Gene, AF_gene) %>%
+    pivot_wider(names_from = Gene, values_from = AF_gene) %>%
+    summarise(
+        cor_AAT2_pfcrt  = cor(pfaat2, pfcrt, use = "complete.obs"),
+        cor_AAT2_pfaat1 = cor(pfaat2, pfaat1, use = "complete.obs"),
+        cor_pfcrt_pfaat1 = cor(pfcrt, pfaat1, use = "complete.obs")
+    )
+
+
+
+
+
 # ============================================================
 # 1. HEATMAP: DAY × CONC
 # ============================================================
