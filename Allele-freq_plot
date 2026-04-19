@@ -1014,7 +1014,7 @@ p_pfcrt <- ggplot(
     ) +
     labs(
         x = "Competition day",
-        y = paste0("Mean ", NF54_ALLELE, " allele frequency\nwithin ±", format(GENE_WINDOW_BP, big.mark = ","), " bp"),
+        y = paste0("NF54", " allele frequency"),
         fill = "Concentration",
         color = "Concentration",
         title = "pfcrt allele frequency across individual competition days"
