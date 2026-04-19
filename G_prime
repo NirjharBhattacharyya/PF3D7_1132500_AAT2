@@ -1,0 +1,727 @@
+
+
+
+###################################################################
+# G' analysis
+###################################################################
+
+################################################################################
+# MANUAL G' ANALYSIS FOR SELECTED SAMPLES
+#   - avoids runGprimeAnalysis() and non-exported QTLseqr internals
+#   - computes raw G manually
+#   - computes G' by local smoothing of G
+#   - uses Control vs Drug comparisons within MouseID / CompetitionDay / Time
+#   - saves combined results and plots
+################################################################################
+
+# rm(list = ls())
+options(stringsAsFactors = FALSE)
+
+suppressPackageStartupMessages({
+    library(data.table)
+    library(dplyr)
+    library(stringr)
+    library(tidyr)
+    library(ggplot2)
+    library(tibble)
+    library(locfit)
+})
+
+# ============================================================
+# INPUT
+# ============================================================
+TABLE_FILE <- "BSA5.NF54-NHP4026.SNP.calledINparents.coreGenome2 (1).table"
+stopifnot(file.exists(TABLE_FILE))
+
+NF54_ALLELE <- "REF"
+WINDOW_SIZE <- 1e5
+MIN_DEPTH <- 20
+
+# ============================================================
+# METADATA
+# ============================================================
+meta_text <- "
+SampleID\tMouseID\tSelectionLevel\tCompetitionDay\tReplicate\tBatch\tBSA\tConcentration\tTime
+AB_BC_0038\tM13\tT0\t0\t1\t1\tdrug\tT0\t0h
+AB_BC_0040\tM23\tT0\t0\t1\t1\tdrug\tT0\t0h
+AB_BC_0041\tM26\tT0\t0\t1\t1\tdrug\tT0\t0h
+AB_BC_0042\tM43\tT0\t0\t1\t1\tdrug\tT0\t0h
+AB_BC_0043\tM46\tT0\t0\t1\t1\tdrug\tT0\t0h
+AB_BC_0045\tM13\tControl - 48 hr\t4\t1\t1\tdrug\t0\t48h
+AB_BC_0047\tM13\t250 nM CQ - 48 hr\t4\t1\t1\tdrug\t250\t48h
+AB_BC_0049\tM13\t100 nM CQ - 48 hr\t4\t1\t1\tdrug\t100\t48h
+AB_BC_0051\tM13\t50 nM CQ - 48 hr\t4\t1\t1\tdrug\t50\t48h
+AB_BC_0165\tM13\tM13 Control - 48 hr\t5\t1\t1\tdrug\t0\t48h
+AB_BC_0167\tM13\tM13 250 nM CQ - 48 hr\t5\t1\t1\tdrug\t250\t48h
+AB_BC_0169\tM13\tM13 100 nM CQ - 48 hr\t5\t1\t1\tdrug\t100\t48h
+AB_BC_0171\tM13\tM13 50 nM CQ - 48 hr\t5\t1\t1\tdrug\t50\t48h
+AB_BC_0349\tM13\tM13 Control - 48 hr\t7\t1\t1\tdrug\t0\t48h
+AB_BC_0351\tM13\tM13 250 nM CQ - 48 hr\t7\t1\t1\tdrug\t250\t48h
+AB_BC_0353\tM13\tM13 100 nM CQ - 48 hr\t7\t1\t1\tdrug\t100\t48h
+AB_BC_0355\tM13\tM13 50 nM CQ - 48 hr\t7\t1\t1\tdrug\t50\t48h
+AB_BC_0469\tM13\tM13 Control - 96 hr\t10\t1\t1\tdrug\t0\t96h
+AB_BC_0471\tM13\tM13 250 nM CQ - 96 hr\t10\t1\t1\tdrug\t250\t96h
+AB_BC_0473\tM13\tM13 100 nM CQ - 96 hr\t10\t1\t1\tdrug\t100\t96h
+AB_BC_0475\tM13\tM13 50 nM CQ - 96 hr\t10\t1\t1\tdrug\t50\t96h
+AB_BC_0285\tM13\tM13 control - 6 hr\t5\t1\t1\tdrug\t0\t6h
+AB_BC_0589\tM13\tM13 control - 6 hr\t10\t1\t1\tdrug\t0\t6h
+AB_BC_0653\tM13\tM13 control - 6 hr\t16\t1\t1\tdrug\t0\t6h
+AB_BC_0046\tM13\tControl - 48 hr\t4\t2\t2\tdrug\t0\t48h
+AB_BC_0048\tM13\t250 nM CQ - 48 hr\t4\t2\t2\tdrug\t250\t48h
+AB_BC_0050\tM13\t100 nM CQ - 48 hr\t4\t2\t2\tdrug\t100\t48h
+AB_BC_0052\tM13\t50 nM CQ - 48 hr\t4\t2\t2\tdrug\t50\t48h
+AB_BC_0065\tM16\tControl - 48 hr\t4\t1\t2\tdrug\t0\t48h
+AB_BC_0066\tM16\tControl - 48 hr\t4\t2\t2\tdrug\t0\t48h
+AB_BC_0067\tM16\t250 nM CQ - 48 hr\t4\t1\t2\tdrug\t250\t48h
+AB_BC_0068\tM16\t250 nM CQ - 48 hr\t4\t2\t2\tdrug\t250\t48h
+AB_BC_0071\tM16\t50 nM CQ - 48 hr\t4\t1\t2\tdrug\t50\t48h
+AB_BC_0072\tM16\t50 nM CQ - 48 hr\t4\t2\t2\tdrug\t50\t48h
+AB_BC_0085\tM23\tControl - 48 hr\t4\t1\t2\tdrug\t0\t48h
+AB_BC_0086\tM23\tControl - 48 hr\t4\t2\t2\tdrug\t0\t48h
+AB_BC_0087\tM23\t250 nM CQ - 48 hr\t4\t1\t2\tdrug\t250\t48h
+AB_BC_0088\tM23\t250 nM CQ - 48 hr\t4\t2\t2\tdrug\t250\t48h
+AB_BC_0089\tM23\t100 nM CQ - 48 hr\t4\t1\t2\tdrug\t100\t48h
+AB_BC_0090\tM23\t100 nM CQ - 48 hr\t4\t2\t2\tdrug\t100\t48h
+AB_BC_0091\tM23\t50 nM CQ - 48 hr\t4\t1\t2\tdrug\t50\t48h
+AB_BC_0092\tM23\t50 nM CQ - 48 hr\t4\t2\t2\tdrug\t50\t48h
+AB_BC_0105\tM26\tControl - 48 hr\t4\t1\t2\tdrug\t0\t48h
+AB_BC_0106\tM26\tControl - 48 hr\t4\t2\t2\tdrug\t0\t48h
+AB_BC_0107\tM26\t250 nM CQ - 48 hr\t4\t1\t2\tdrug\t250\t48h
+AB_BC_0108\tM26\t250 nM CQ - 48 hr\t4\t2\t2\tdrug\t250\t48h
+AB_BC_0109\tM26\t100 nM CQ - 48 hr\t4\t1\t2\tdrug\t100\t48h
+AB_BC_0110\tM26\t100 nM CQ - 48 hr\t4\t2\t2\tdrug\t100\t48h
+AB_BC_0111\tM26\t50 nM CQ - 48 hr\t4\t1\t2\tdrug\t50\t48h
+AB_BC_0112\tM26\t50 nM CQ - 48 hr\t4\t2\t2\tdrug\t50\t48h
+AB_BC_0350\tM13\tM13 Control - 48 hr\t7\t2\t2\tdrug\t0\t48h
+AB_BC_0352\tM13\tM13 250 nM CQ - 48 hr\t7\t2\t2\tdrug\t250\t48h
+AB_BC_0354\tM13\tM13 100 nM CQ - 48 hr\t7\t2\t2\tdrug\t100\t48h
+AB_BC_0356\tM13\tM13 50 nM CQ - 48 hr\t7\t2\t2\tdrug\t50\t48h
+AB_BC_0369\tM16\tM16 Control - 48 hr\t7\t1\t2\tdrug\t0\t48h
+AB_BC_0370\tM16\tM16 Control - 48 hr\t7\t2\t2\tdrug\t0\t48h
+AB_BC_0371\tM16\tM16 250 nM CQ - 48 hr\t7\t1\t2\tdrug\t250\t48h
+AB_BC_0372\tM16\tM16 250 nM CQ - 48 hr\t7\t2\t2\tdrug\t250\t48h
+AB_BC_0373\tM16\tM16 100 nM CQ - 48 hr\t7\t1\t2\tdrug\t100\t48h
+AB_BC_0375\tM16\tM16 50 nM CQ - 48 hr\t7\t1\t2\tdrug\t50\t48h
+AB_BC_0376\tM16\tM16 50 nM CQ - 48 hr\t7\t2\t2\tdrug\t50\t48h
+AB_BC_0389\tM23\tM23 Control - 48 hr\t7\t1\t2\tdrug\t0\t48h
+AB_BC_0390\tM23\tM23 Control - 48 hr\t7\t2\t2\tdrug\t0\t48h
+AB_BC_0391\tM23\tM23 250 nM CQ - 48 hr\t7\t1\t2\tdrug\t250\t48h
+AB_BC_0392\tM23\tM23 250 nM CQ - 48 hr\t7\t2\t2\tdrug\t250\t48h
+AB_BC_0393\tM23\tM23 100 nM CQ - 48 hr\t7\t1\t2\tdrug\t100\t48h
+AB_BC_0394\tM23\tM23 100 nM CQ - 48 hr\t7\t2\t2\tdrug\t100\t48h
+AB_BC_0395\tM23\tM23 50 nM CQ - 48 hr\t7\t1\t2\tdrug\t50\t48h
+AB_BC_0396\tM23\tM23 50 nM CQ - 48 hr\t7\t2\t2\tdrug\t50\t48h
+AB_BC_0409\tM26\tM26 Control - 48 hr\t7\t1\t2\tdrug\t0\t48h
+AB_BC_0410\tM26\tM26 Control - 48 hr\t7\t2\t2\tdrug\t0\t48h
+AB_BC_0411\tM26\tM26 250 nM CQ - 48 hr\t7\t1\t2\tdrug\t250\t48h
+AB_BC_0412\tM26\tM26 250 nM CQ - 48 hr\t7\t2\t2\tdrug\t250\t48h
+AB_BC_0413\tM26\tM26 100 nM CQ - 48 hr\t7\t1\t2\tdrug\t100\t48h
+AB_BC_0414\tM26\tM26 100 nM CQ - 48 hr\t7\t2\t2\tdrug\t100\t48h
+AB_BC_0415\tM26\tM26 50 nM CQ - 48 hr\t7\t1\t2\tdrug\t50\t48h
+AB_BC_0416\tM26\tM26 50 nM CQ - 48 hr\t7\t2\t2\tdrug\t50\t48h
+AB_BC_0166\tM13\tM13 Control - 96 hr\t5\t2\t2\tdrug\t0\t96h
+AB_BC_0168\tM13\tM13 250 nM CQ - 96 hr\t5\t2\t2\tdrug\t250\t96h
+AB_BC_0170\tM13\tM13 100 nM CQ - 96 hr\t5\t2\t2\tdrug\t100\t96h
+AB_BC_0172\tM13\tM13 50 nM CQ - 96 hr\t5\t2\t2\tdrug\t50\t96h
+AB_BC_0185\tM16\tM16 Control - 96 hr\t5\t1\t2\tdrug\t0\t96h
+AB_BC_0186\tM16\tM16 Control - 96 hr\t5\t2\t2\tdrug\t0\t96h
+AB_BC_0187\tM16\tM16 250 nM CQ - 96 hr\t5\t1\t2\tdrug\t250\t96h
+AB_BC_0188\tM16\tM16 250 nM CQ - 96 hr\t5\t2\t2\tdrug\t250\t96h
+AB_BC_0189\tM16\tM16 100 nM CQ - 96 hr\t5\t1\t2\tdrug\t100\t96h
+AB_BC_0190\tM16\tM16 100 nM CQ - 96 hr\t5\t2\t2\tdrug\t100\t96h
+AB_BC_0191\tM16\tM16 50 nM CQ - 96 hr\t5\t1\t2\tdrug\t50\t96h
+AB_BC_0192\tM16\tM16 50 nM CQ - 96 hr\t5\t2\t2\tdrug\t50\t96h
+AB_BC_0205\tM23\tM23 Control - 96 hr\t5\t1\t2\tdrug\t0\t96h
+AB_BC_0206\tM23\tM23 Control - 96 hr\t5\t2\t2\tdrug\t0\t96h
+AB_BC_0207\tM23\tM23 250 nM CQ - 96 hr\t5\t1\t2\tdrug\t250\t96h
+AB_BC_0208\tM23\tM23 250 nM CQ - 96 hr\t5\t2\t2\tdrug\t250\t96h
+AB_BC_0209\tM23\tM23 100 nM CQ - 96 hr\t5\t1\t2\tdrug\t100\t96h
+AB_BC_0210\tM23\tM23 100 nM CQ - 96 hr\t5\t2\t2\tdrug\t100\t96h
+AB_BC_0211\tM23\tM23 50 nM CQ - 96 hr\t5\t1\t2\tdrug\t50\t96h
+AB_BC_0212\tM23\tM23 50 nM CQ - 96 hr\t5\t2\t2\tdrug\t50\t96h
+AB_BC_0225\tM26\tM26 Control - 96 hr\t5\t1\t2\tdrug\t0\t96h
+AB_BC_0226\tM26\tM26 Control - 96 hr\t5\t2\t2\tdrug\t0\t96h
+AB_BC_0227\tM26\tM26 250 nM CQ - 96 hr\t5\t1\t2\tdrug\t250\t96h
+AB_BC_0228\tM26\tM26 250 nM CQ - 96 hr\t5\t2\t2\tdrug\t250\t96h
+AB_BC_0229\tM26\tM26 100 nM CQ - 96 hr\t5\t1\t2\tdrug\t100\t96h
+AB_BC_0230\tM26\tM26 100 nM CQ - 96 hr\t5\t2\t2\tdrug\t100\t96h
+AB_BC_0231\tM26\tM26 50 nM CQ - 96 hr\t5\t1\t2\tdrug\t50\t96h
+AB_BC_0232\tM26\tM26 50 nM CQ - 96 hr\t5\t2\t2\tdrug\t50\t96h
+AB_BC_0470\tM13\tM13 Control - 96 hr\t10\t2\t2\tdrug\t0\t96h
+AB_BC_0472\tM13\tM13 250 nM CQ - 96 hr\t10\t2\t2\tdrug\t250\t96h
+AB_BC_0474\tM13\tM13 100 nM CQ - 96 hr\t10\t2\t2\tdrug\t100\t96h
+AB_BC_0476\tM13\tM13 50 nM CQ - 96 hr\t10\t2\t2\tdrug\t50\t96h
+AB_BC_0489\tM16\tM16 Control - 96 hr\t10\t1\t2\tdrug\t0\t96h
+AB_BC_0490\tM16\tM16 Control - 96 hr\t10\t2\t2\tdrug\t0\t96h
+AB_BC_0491\tM16\tM16 250 nM CQ - 96 hr\t10\t1\t2\tdrug\t250\t96h
+AB_BC_0492\tM16\tM16 250 nM CQ - 96 hr\t10\t2\t2\tdrug\t250\t96h
+AB_BC_0495\tM16\tM16 50 nM CQ - 96 hr\t10\t1\t2\tdrug\t50\t96h
+AB_BC_0496\tM16\tM16 50 nM CQ - 96 hr\t10\t2\t2\tdrug\t50\t96h
+AB_BC_0509\tM23\tM23 Control - 96 hr\t10\t1\t2\tdrug\t0\t96h
+AB_BC_0510\tM23\tM23 Control - 96 hr\t10\t2\t2\tdrug\t0\t96h
+AB_BC_0511\tM23\tM23 250 nM CQ - 96 hr\t10\t1\t2\tdrug\t250\t96h
+AB_BC_0512\tM23\tM23 250 nM CQ - 96 hr\t10\t2\t2\tdrug\t250\t96h
+AB_BC_0515\tM23\tM23 50 nM CQ - 96 hr\t10\t1\t2\tdrug\t50\t96h
+AB_BC_0516\tM23\tM23 50 nM CQ - 96 hr\t10\t2\t2\tdrug\t50\t96h
+AB_BC_0529\tM26\tM26 Control - 96 hr\t10\t1\t2\tdrug\t0\t96h
+AB_BC_0530\tM26\tM26 Control - 96 hr\t10\t2\t2\tdrug\t0\t96h
+AB_BC_0531\tM26\tM26 250 nM CQ - 96 hr\t10\t1\t2\tdrug\t250\t96h
+AB_BC_0532\tM26\tM26 250 nM CQ - 96 hr\t10\t2\t2\tdrug\t250\t96h
+AB_BC_0533\tM26\tM26 100 nM CQ - 96 hr\t10\t1\t2\tdrug\t100\t96h
+AB_BC_0534\tM26\tM26 100 nM CQ - 96 hr\t10\t2\t2\tdrug\t100\t96h
+AB_BC_0535\tM26\tM26 50 nM CQ - 96 hr\t10\t1\t2\tdrug\t50\t96h
+AB_BC_0536\tM26\tM26 50 nM CQ - 96 hr\t10\t2\t2\tdrug\t50\t96h
+AB_BC_0569\tpooled\tpooled Control - 96 hr\t10\t1\t2\tdrug\t0\t96h
+AB_BC_0570\tpooled\tpooled Control - 96 hr\t10\t2\t2\tdrug\t0\t96h
+AB_BC_0571\tpooled\tpooled 250 nM CQ - 96 hr\t10\t1\t2\tdrug\t250\t96h
+AB_BC_0572\tpooled\tpooled 250 nM CQ - 96 hr\t10\t2\t2\tdrug\t250\t96h
+AB_BC_0573\tpooled\tpooled 100 nM CQ - 96 hr\t10\t1\t2\tdrug\t100\t96h
+AB_BC_0574\tpooled\tpooled 100 nM CQ - 96 hr\t10\t2\t2\tdrug\t100\t96h
+AB_BC_0575\tpooled\tpooled 50 nM CQ - 96 hr\t10\t1\t2\tdrug\t50\t96h
+AB_BC_0576\tpooled\tpooled 50 nM CQ - 96 hr\t10\t2\t2\tdrug\t50\t96h
+"
+
+
+meta <- fread(text = meta_text, sep = "\t")
+setnames(meta, names(meta), gsub("[[:space:]]+", "", names(meta)))
+
+meta <- meta %>%
+    mutate(
+        SampleID = as.character(SampleID),
+        CompetitionDay = as.character(CompetitionDay),
+        Time = factor(as.character(Time), levels = c("0h", "6h", "48h", "96h")),
+        Conc = case_when(
+            str_detect(as.character(Concentration), regex("^T0$", ignore_case = TRUE)) ~ "Control",
+            str_detect(as.character(Concentration), regex("^0$", ignore_case = TRUE)) ~ "Control",
+            str_detect(as.character(Concentration), regex("^50$", ignore_case = TRUE)) ~ "50 nM",
+            str_detect(as.character(Concentration), regex("^100$", ignore_case = TRUE)) ~ "100 nM",
+            str_detect(as.character(Concentration), regex("^250$", ignore_case = TRUE)) ~ "250 nM",
+            TRUE ~ NA_character_
+        )
+    ) %>%
+    filter(!is.na(Conc), !is.na(Time), !is.na(CompetitionDay))
+
+# ============================================================
+# KEEP ONLY USER-SELECTED SAMPLES
+# ============================================================
+keep_samples <- c(
+    "AB_BC_0065","AB_BC_0066","AB_BC_0067","AB_BC_0068","AB_BC_0071","AB_BC_0072",
+    "AB_BC_0085","AB_BC_0086","AB_BC_0087","AB_BC_0088","AB_BC_0089","AB_BC_0090","AB_BC_0091","AB_BC_0092",
+    "AB_BC_0105",
+    "AB_BC_0185","AB_BC_0186","AB_BC_0187","AB_BC_0188","AB_BC_0191","AB_BC_0192",
+    "AB_BC_0205","AB_BC_0206","AB_BC_0207","AB_BC_0208","AB_BC_0209","AB_BC_0210","AB_BC_0211","AB_BC_0212",
+    "AB_BC_0369","AB_BC_0370","AB_BC_0371","AB_BC_0372","AB_BC_0375","AB_BC_0376",
+    "AB_BC_0389","AB_BC_0390","AB_BC_0391","AB_BC_0392","AB_BC_0393","AB_BC_0394","AB_BC_0395","AB_BC_0396",
+    "AB_BC_0285",
+    "AB_BC_0489","AB_BC_0490","AB_BC_0491","AB_BC_0492","AB_BC_0495","AB_BC_0496",
+    "AB_BC_0509","AB_BC_0510","AB_BC_0511","AB_BC_0512","AB_BC_0515","AB_BC_0516",
+    "AB_BC_0569","AB_BC_0570","AB_BC_0571","AB_BC_0572","AB_BC_0573","AB_BC_0574","AB_BC_0575","AB_BC_0576",
+    "AB_BC_0589"
+)
+meta <- meta %>%
+    filter(SampleID %in% keep_samples)
+
+# ============================================================
+# READ TABLE
+# ============================================================
+dt <- fread(TABLE_FILE)
+colnames(dt) <- gsub("/\\.", ".", colnames(dt))
+colnames(dt) <- gsub("\\s+", "", colnames(dt))
+
+chrom_col <- names(dt)[tolower(names(dt)) %in% c("chrom", "chr", "contig")][1]
+pos_col   <- names(dt)[tolower(names(dt)) %in% c("pos", "position", "start")][1]
+
+stopifnot(!is.na(chrom_col), !is.na(pos_col))
+
+ad_cols <- names(dt)[grepl("\\.AD$", names(dt))]
+sample_map <- data.frame(
+    ad_col = ad_cols,
+    SampleID = gsub("\\.AD$", "", ad_cols),
+    stringsAsFactors = FALSE
+) %>%
+    distinct(SampleID, .keep_all = TRUE) %>%
+    filter(SampleID %in% keep_samples)
+
+# ============================================================
+# PARSE AD
+# ============================================================
+extract_first_two_counts <- function(x) {
+    x <- as.character(x)
+    nums_list <- stringr::str_extract_all(x, "[0-9]+")
+    ref <- rep(NA_real_, length(nums_list))
+    alt <- rep(NA_real_, length(nums_list))
+
+    for (i in seq_along(nums_list)) {
+        vals <- nums_list[[i]]
+        if (length(vals) >= 2) {
+            ref[i] <- as.numeric(vals[1])
+            alt[i] <- as.numeric(vals[2])
+        }
+    }
+
+    data.frame(ref_ct = ref, alt_ct = alt)
+}
+
+# ============================================================
+# RAW G STATISTIC
+# ============================================================
+calc_G_stat <- function(low_ref, low_alt, high_ref, high_alt) {
+    obs <- cbind(low_ref, low_alt, high_ref, high_alt)
+
+    row_tot_1 <- low_ref + low_alt
+    row_tot_2 <- high_ref + high_alt
+    col_tot_1 <- low_ref + high_ref
+    col_tot_2 <- low_alt + high_alt
+    grand_tot <- row_tot_1 + row_tot_2
+
+    exp_low_ref  <- row_tot_1 * col_tot_1 / grand_tot
+    exp_low_alt  <- row_tot_1 * col_tot_2 / grand_tot
+    exp_high_ref <- row_tot_2 * col_tot_1 / grand_tot
+    exp_high_alt <- row_tot_2 * col_tot_2 / grand_tot
+
+    term_fun <- function(o, e) {
+        out <- rep(0, length(o))
+        ok <- !is.na(o) & !is.na(e) & o > 0 & e > 0
+        out[ok] <- o[ok] * log(o[ok] / e[ok])
+        out
+    }
+
+    g <- 2 * (
+        term_fun(low_ref, exp_low_ref) +
+        term_fun(low_alt, exp_low_alt) +
+        term_fun(high_ref, exp_high_ref) +
+        term_fun(high_alt, exp_high_alt)
+    )
+
+    g[!is.finite(g)] <- NA_real_
+    g
+}
+
+# ============================================================
+# LOCAL SMOOTHING FOR G' AND DELTASNP
+# ============================================================
+smooth_stat_locfit <- function(pos, stat, window_size = 1e5) {
+    ord <- order(pos)
+    x <- pos[ord]
+    y <- stat[ord]
+
+    out <- rep(NA_real_, length(pos))
+
+    good <- is.finite(x) & is.finite(y)
+    if (sum(good) < 10) return(out)
+
+    xg <- x[good]
+    yg <- y[good]
+
+    fit <- try(
+        locfit::locfit(yg ~ locfit::lp(xg, h = window_size, deg = 0)),
+        silent = TRUE
+    )
+
+    if (inherits(fit, "try-error")) return(out)
+
+    pred <- try(stats::predict(fit, newdata = x), silent = TRUE)
+    if (inherits(pred, "try-error")) return(out)
+
+    out[ord] <- as.numeric(pred)
+    out
+}
+
+base_df <- dt %>%
+    transmute(
+        CHROM = as.character(.data[[chrom_col]]),
+        POS   = as.numeric(.data[[pos_col]])
+    )
+
+chr_levels <- paste0("Pf3D7_", sprintf("%02d", 1:14), "_v3")
+keep_idx <- which(base_df$CHROM %in% chr_levels)
+
+gprime_df <- base_df[keep_idx, , drop = FALSE] %>%
+    mutate(CHROM = factor(CHROM, levels = chr_levels))
+
+for (i in seq_len(nrow(sample_map))) {
+    sid <- sample_map$SampleID[i]
+    ad_col <- sample_map$ad_col[i]
+
+    counts <- extract_first_two_counts(dt[[ad_col]])
+    counts <- counts[keep_idx, , drop = FALSE]
+
+    depth <- counts$ref_ct + counts$alt_ct
+
+    if (NF54_ALLELE == "REF") {
+        bulk_ref <- counts$ref_ct
+        bulk_alt <- counts$alt_ct
+    } else {
+        bulk_ref <- counts$alt_ct
+        bulk_alt <- counts$ref_ct
+    }
+
+    gprime_df[[paste0(sid, "_REF")]] <- bulk_ref
+    gprime_df[[paste0(sid, "_ALT")]] <- bulk_alt
+    gprime_df[[paste0(sid, "_DP")]]  <- depth
+}
+
+gprime_df <- as.data.frame(gprime_df)
+
+# ============================================================
+# BUILD COMPARISONS
+# ============================================================
+comparison_tbl <- meta %>%
+    select(SampleID, MouseID, CompetitionDay, Time, Conc, Replicate) %>%
+    mutate(Time = as.character(Time))
+
+controls <- comparison_tbl %>% filter(Conc == "Control")
+treateds <- comparison_tbl %>% filter(Conc != "Control")
+
+comparisons <- treateds %>%
+    inner_join(
+        controls,
+        by = c("MouseID", "CompetitionDay", "Time"),
+        suffix = c("_treated", "_control"),
+        relationship = "many-to-many"
+    ) %>%
+    transmute(
+        MouseID,
+        CompetitionDay,
+        Time,
+        DrugConc = Conc_treated,
+        treated_id = SampleID_treated,
+        control_id = SampleID_control
+    )
+
+comparison_keys <- comparisons %>%
+    distinct(MouseID, CompetitionDay, Time, DrugConc)
+
+# ============================================================
+# MANUAL G' HELPER
+# ============================================================
+make_gprime_input <- function(mouse_id, day, time_i, drug_conc) {
+
+    treated_ids <- comparisons %>%
+        filter(
+            MouseID == mouse_id,
+            CompetitionDay == day,
+            Time == time_i,
+            DrugConc == drug_conc
+        ) %>%
+        pull(treated_id) %>%
+        unique()
+
+    control_ids <- comparisons %>%
+        filter(
+            MouseID == mouse_id,
+            CompetitionDay == day,
+            Time == time_i,
+            DrugConc == drug_conc
+        ) %>%
+        pull(control_id) %>%
+        unique()
+
+    if (length(treated_ids) < 1 || length(control_ids) < 1) return(NULL)
+
+    out <- gprime_df[, c("CHROM", "POS"), drop = FALSE]
+
+    low_ref  <- rowSums(sapply(control_ids, function(s) gprime_df[[paste0(s, "_REF")]]), na.rm = FALSE)
+    low_alt  <- rowSums(sapply(control_ids, function(s) gprime_df[[paste0(s, "_ALT")]]), na.rm = FALSE)
+    high_ref <- rowSums(sapply(treated_ids, function(s) gprime_df[[paste0(s, "_REF")]]), na.rm = FALSE)
+    high_alt <- rowSums(sapply(treated_ids, function(s) gprime_df[[paste0(s, "_ALT")]]), na.rm = FALSE)
+
+    out$LowRef  <- low_ref
+    out$LowAlt  <- low_alt
+    out$HighRef <- high_ref
+    out$HighAlt <- high_alt
+    out$DP1 <- low_ref + low_alt
+    out$DP2 <- high_ref + high_alt
+    out$SNPindex1 <- out$LowAlt / out$DP1
+    out$SNPindex2 <- out$HighAlt / out$DP2
+    out$deltaSNP <- out$SNPindex2 - out$SNPindex1
+
+    out <- out %>%
+        filter(
+            !is.na(LowRef), !is.na(LowAlt), !is.na(HighRef), !is.na(HighAlt),
+            !is.na(DP1), !is.na(DP2),
+            DP1 >= MIN_DEPTH, DP2 >= MIN_DEPTH
+        )
+
+    if (nrow(out) < 100) return(NULL)
+
+    out$G <- calc_G_stat(
+        low_ref  = out$LowRef,
+        low_alt  = out$LowAlt,
+        high_ref = out$HighRef,
+        high_alt = out$HighAlt
+    )
+
+    out <- out %>%
+        group_by(CHROM) %>%
+        arrange(POS, .by_group = TRUE) %>%
+        mutate(
+            Gprime = smooth_stat_locfit(POS, G, window_size = WINDOW_SIZE),
+            deltaSNP_tricube = smooth_stat_locfit(POS, deltaSNP, window_size = WINDOW_SIZE)
+        ) %>%
+        ungroup()
+
+    out <- out %>%
+        filter(!is.na(Gprime), is.finite(Gprime))
+
+    attr(out, "n_low") <- length(control_ids)
+    attr(out, "n_high") <- length(treated_ids)
+    out
+}
+
+# ============================================================
+# RUN MANUAL G' ANALYSIS
+# ============================================================
+results_list <- list()
+
+for (i in seq_len(nrow(comparison_keys))) {
+
+    mouse_i <- comparison_keys$MouseID[i]
+    day_i   <- comparison_keys$CompetitionDay[i]
+    time_i  <- comparison_keys$Time[i]
+    conc_i  <- comparison_keys$DrugConc[i]
+
+    res <- make_gprime_input(mouse_i, day_i, time_i, conc_i)
+
+    if (is.null(res)) {
+        message("Skipping comparison (insufficient usable SNPs): ", paste(mouse_i, day_i, time_i, conc_i, sep = "_"))
+        next
+    }
+
+    n_low  <- attr(res, "n_low")
+    n_high <- attr(res, "n_high")
+
+    res$MouseID <- mouse_i
+    res$CompetitionDay <- day_i
+    res$Time <- time_i
+    res$DrugConc <- conc_i
+    res$Comparison <- paste(mouse_i, paste0("Day", day_i), time_i, conc_i, sep = "_")
+    res$n_control <- n_low
+    res$n_treated <- n_high
+
+    results_list[[paste(mouse_i, day_i, time_i, conc_i, sep = "_")]] <- res
+}
+
+gprime_results <- bind_rows(results_list)
+
+if (nrow(gprime_results) == 0) {
+    stop("No manual G' results produced. Check group sizes and filtering.")
+}
+
+fwrite(gprime_results, "Gprime_manual_all_comparisons_results.csv")
+
+# ============================================================
+# EMPIRICAL THRESHOLDS
+# ============================================================
+threshold_tbl <- gprime_results %>%
+    group_by(Comparison) %>%
+    summarise(
+        Gprime_95 = quantile(Gprime, 0.95, na.rm = TRUE),
+        Gprime_99 = quantile(Gprime, 0.99, na.rm = TRUE),
+        .groups = "drop"
+    )
+
+fwrite(threshold_tbl, "Gprime_manual_thresholds_empirical.csv")
+
+# ============================================================
+# PLOT 1: ALL COMPARISONS OVERLAID
+# ============================================================
+chr_labeller <- as_labeller(setNames(paste0("Chr ", 1:14), chr_levels))
+
+p_all <- ggplot(gprime_results, aes(x = POS, y = Gprime, color = Comparison, group = Comparison)) +
+    geom_line(linewidth = 0.6, alpha = 0.9) +
+    facet_grid(~ CHROM, scales = "free_x", space = "free_x", labeller = chr_labeller) +
+    theme_bw(base_size = 10) +
+    theme(
+        strip.background = element_rect(fill = "grey95", color = "grey85"),
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        panel.grid.major = element_line(color = "grey92", linewidth = 0.2),
+        panel.grid.minor = element_line(color = "grey96", linewidth = 0.1)
+    ) +
+    labs(
+        y = "G'",
+        color = "Comparison",
+        title = "Genome-wide manual G' across all comparisons"
+    )
+
+print(p_all)
+
+ggsave(
+    "Gprime_manual_overlay_all_comparisons.png",
+    p_all,
+    width = 18,
+    height = 4.2,
+    dpi = 300
+)
+
+# ============================================================
+# PLOT 2: ONE PANEL PER COMPARISON
+# ============================================================
+p_facet <- ggplot(gprime_results, aes(x = POS, y = Gprime, group = Comparison)) +
+    geom_line(linewidth = 0.5, color = "black") +
+    facet_grid(Comparison ~ CHROM, scales = "free_x", space = "free_x", labeller = chr_labeller) +
+    theme_bw(base_size = 8) +
+    theme(
+        strip.background = element_rect(fill = "grey95", color = "grey85"),
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        panel.grid.major = element_line(color = "grey92", linewidth = 0.2),
+        panel.grid.minor = element_line(color = "grey96", linewidth = 0.1)
+    ) +
+    labs(
+        y = "G'",
+        title = "Genome-wide manual G' by comparison"
+    )
+
+print(p_facet)
+
+ggsave(
+    "Gprime_manual_facet_by_comparison.png",
+    p_facet,
+    width = 18,
+    height = max(6, 0.9 * length(unique(gprime_results$Comparison))),
+    dpi = 300
+)
+
+# ============================================================
+# PLOT 3: PEAK SUMMARY
+# ============================================================
+peak_tbl <- gprime_results %>%
+    group_by(Comparison, MouseID, CompetitionDay, Time, DrugConc, CHROM) %>%
+    summarise(
+        max_Gprime = max(Gprime, na.rm = TRUE),
+        peak_POS = POS[which.max(Gprime)],
+        .groups = "drop"
+    )
+
+fwrite(peak_tbl, "Gprime_manual_peak_summary_by_chr.csv")
+
+p_peak <- ggplot(peak_tbl, aes(x = CHROM, y = max_Gprime, fill = DrugConc)) +
+    geom_col(position = "dodge") +
+    facet_wrap(~ Comparison, ncol = 1) +
+    theme_bw(base_size = 9) +
+    theme(
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)
+    ) +
+    labs(
+        x = "Chromosome",
+        y = "Max G'",
+        fill = "Drug concentration",
+        title = "Peak manual G' per chromosome"
+    )
+
+print(p_peak)
+
+ggsave(
+    "Gprime_manual_peak_summary.png",
+    p_peak,
+    width = 10,
+    height = max(6, 1.2 * length(unique(peak_tbl$Comparison))),
+    dpi = 300
+)
+
+cat("Saved:\n")
+cat("  Gprime_manual_all_comparisons_results.csv\n")
+cat("  Gprime_manual_thresholds_empirical.csv\n")
+cat("  Gprime_manual_peak_summary_by_chr.csv\n")
+cat("  Gprime_manual_overlay_all_comparisons.png\n")
+cat("  Gprime_manual_facet_by_comparison.png\n")
+cat("  Gprime_manual_peak_summary.png\n")
+
+
+# ============================================================
+# GENE MARKERS
+# ============================================================
+gene_lines <- data.frame(
+    Gene = c("PfAAT2", "pfcrt", "pfaat1"),
+    CHROM = factor(c("Pf3D7_11_v3", "Pf3D7_07_v3", "Pf3D7_06_v3"), levels = chr_levels),
+    POS   = c(1263918, 404769.5, 1214976.5)
+)
+
+# ============================================================
+# PLOT 1: ALL COMPARISONS OVERLAID
+# ============================================================
+chr_labeller <- as_labeller(setNames(paste0("Chr ", 1:14), chr_levels))
+
+p_all <- ggplot(gprime_results, aes(x = POS, y = Gprime, color = Comparison, group = Comparison)) +
+    facet_grid(~ CHROM, scales = "free_x", space = "free_x", labeller = chr_labeller) +
+    geom_line(linewidth = 0.6, alpha = 0.9) +
+    geom_vline(
+        data = gene_lines,
+        aes(xintercept = POS),
+        inherit.aes = FALSE,
+        linetype = "dashed",
+        linewidth = 0.7,
+        color = "blue"
+    ) +
+    theme_bw(base_size = 10) +
+    theme(
+        strip.background = element_rect(fill = "grey95", color = "grey85"),
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        panel.grid.major = element_line(color = "grey92", linewidth = 0.2),
+        panel.grid.minor = element_line(color = "grey96", linewidth = 0.1)
+    ) +
+    labs(
+        y = "G'",
+        color = "Comparison",
+        title = "Genome-wide manual G' across all comparisons"
+    )
+
+print(p_all)
+
+ggsave(
+    "Gprime_manual_overlay_all_comparisons.png",
+    p_all,
+    width = 18,
+    height = 4.2,
+    dpi = 300
+)
+
+# ============================================================
+# PLOT 2: ONE PANEL PER COMPARISON
+# ============================================================
+p_facet <- ggplot(gprime_results, aes(x = POS, y = Gprime, group = Comparison)) +
+    facet_grid(Comparison ~ CHROM, scales = "free_x", space = "free_x", labeller = chr_labeller) +
+    geom_line(linewidth = 0.5, color = "black") +
+    geom_vline(
+        data = gene_lines,
+        aes(xintercept = POS),
+        inherit.aes = FALSE,
+        linetype = "dashed",
+        linewidth = 0.7,
+        color = "blue"
+    ) +
+    theme_bw(base_size = 8) +
+    theme(
+        strip.background = element_rect(fill = "grey95", color = "grey85"),
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        panel.grid.major = element_line(color = "grey92", linewidth = 0.2),
+        panel.grid.minor = element_line(color = "grey96", linewidth = 0.1)
+    ) +
+    labs(
+        y = "G'",
+        title = "Genome-wide manual G' by comparison"
+    )
+
+print(p_facet)
+
+ggsave(
+    "Gprime_manual_facet_by_comparison.png",
+    p_facet,
+    width = 18,
+    height = max(6, 0.9 * length(unique(gprime_results$Comparison))),
+    dpi = 300
+)
+
+
+
+
+
+
