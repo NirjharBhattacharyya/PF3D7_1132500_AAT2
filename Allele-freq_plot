@@ -708,7 +708,7 @@ if (nrow(pairwise_stats_sig) > 0) {
         group_by(Gene, CompetitionDay) %>%
         arrange(p.adj, .by_group = TRUE) %>%
         mutate(
-            y.position = pmin(y_base + 0.05 + (row_number() - 1) * 0.05, 0.98)
+            y.position = pmin(y_base + 0.08 + (row_number() - 1) * 0.08, 1.15)
         ) %>%
         ungroup()
 }
@@ -754,7 +754,10 @@ p_gene_box <- ggplot(
         ),
         drop = FALSE
     ) +
-    coord_cartesian(ylim = c(0, 1.02), clip = "off") +
+   coord_cartesian(ylim = c(0, 1.2), clip = "off") +
+scale_y_continuous(
+    breaks = seq(0, 1, 0.25)
+)+
     theme_bw(base_size = 11) +
     theme(
         strip.background = element_rect(fill = "grey95", color = "grey85"),
@@ -846,7 +849,10 @@ for (g in levels(gene_af_df$Gene)) {
             ),
             drop = FALSE
         ) +
-        coord_cartesian(ylim = c(0, 1.02), clip = "off") +
+        coord_cartesian(ylim = c(0, 1.2), clip = "off") +
+scale_y_continuous(
+    breaks = seq(0, 1, 0.25)
+)+
         theme_bw(base_size = 11) +
         theme(
             panel.grid.major.x = element_blank(),
@@ -925,7 +931,7 @@ pfcrt_stats_sub <- pairwise_stats_sig %>%
     mutate(CompetitionDay_chr = as.character(CompetitionDay)) %>%
     group_by(CompetitionDay_chr) %>%
     arrange(p.adj, .by_group = TRUE) %>%
-    slice_head(n = 3) %>%
+    slice_head(n = 2) %>%
     ungroup()
 
 # named lookup: one y_base per day
@@ -947,7 +953,7 @@ pfcrt_stats_split <- lapply(pfcrt_stats_split, function(dd) {
         this_y_base <- max(pfcrt_sub$AF_gene, na.rm = TRUE)
     }
 
-    dd$y.position <- this_y_base + 0.06 + (seq_len(nrow(dd)) - 1) * 0.10
+    dd$y.position <- this_y_base + 0.08 + (seq_len(nrow(dd)) - 1) * 0.12
     dd
 })
 
